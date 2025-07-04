@@ -1,0 +1,61 @@
+version: '3.9'
+
+volumes:
+  logs:           # central log files collected by Fluent Bit
+  ollama:         # model cache for Ollama
+
+services:
+  # 👉 Main application with Nginx, Node, PM2
+  app:
+    build: ./app
+    container_name: app
+    restart: unless-stopped
+    depends_on:
+      - fluent-bit
+    volumes:
+      - logs:/var/log
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: fluent-bit:24224
+        fluentd-async-connect: "true"
+    ports:
+      - "80:80"
+
+  # 👉 Ollama serving Gemma 3n (e2b)
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    command: ["serve"]   # entrypoint is already `ollama`
+    ports:
+      - "11434:11434"
+
+  # 👉 Fluent Bit – centralise all container logs into /logs/all.log
+  fluent-bit:
+    image: fluent/fluent-bit:3.0
+    container_name: fluent-bit
+    volumes:
+      - logs:/logs
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    ports:
+      - "24224:24224"        # forwarder input
+    restart: unless-stopped
+
+  # 👉 Log Analyzer – Node script that calls Gemma & posts to Discord
+  analyzer:
+    build: ./analyzer
+    container_name: analyzer
+    depends_on:
+      - ollama
+      - fluent-bit
+    volumes:
+      - logs:/logs
+    restart: unless-stopped
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - MODEL_NAME=gemma3n:e2b
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}

@@ -1,0 +1,11 @@
+{
+  "name": "log-analyzer",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Tail container logs, feed Gemma via Ollama, and post summaries to Discord.",
+  "main": "analyze.js",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "license": "MIT"
+}

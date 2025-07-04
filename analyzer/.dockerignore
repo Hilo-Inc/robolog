@@ -1,0 +1,4 @@
+# Ignore only the bulky or transient stuff
+node_modules
+npm-debug.log
+.DS_Store
