@@ -1,227 +1,213 @@
-Here is the updated `README.md` with a new section for **Log Management & Helpful Commands**. This version preserves all existing formatting while expanding it with useful operational steps:
+# 🚀 Robolog - AI-Powered Log Monitoring
 
----
+> **Intelligent log monitoring with AI-powered analysis and Discord notifications**
 
-````markdown
-# 🚀 Usage
+Robolog automatically monitors your system logs, detects critical issues, and sends intelligent summaries to Discord using AI analysis powered by Ollama and Gemma 3n (default).
+
+## 📦 Quick Installation (Linux)
+
+### 🚀 Native Installation (Recommended - No Docker Required)
+```bash
+curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash
+```
+
+**Installation Options:**
+```bash
+# Standard installation (prompts for AI model and language selection)
+curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash
+
+# Skip AI model download (faster, download later)  
+curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash -s -- --skip-model
+
+# Auto-download specific model with language preference
+curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash -s -- --yes --model gemma3n:e2b --language English
+
+# Available options:
+# --model gemma3n:e2b  (5.6GB) - Google Gemma 3n [default]
+# --model qwen3:8b     (5.2GB) - Alibaba Qwen 3 with thinking mode
+# --model llama3.2:1b  (1.3GB) - Meta LLaMA (fastest)
+# --model phi3:mini    (2.3GB) - Microsoft Phi-3 (balanced)
+# --language English   - Default language for AI responses
+# --language Spanish   - Responses in Spanish (Español)
+# --language French    - Responses in French (Français)
+# --language German    - Responses in German (Deutsch)
+# --language Chinese   - Responses in Chinese (中文)
+# --language Japanese  - Responses in Japanese (日本語)
+# --language Portuguese - Responses in Portuguese (Português)
+# --language Russian   - Responses in Russian (Русский)
+# --language Italian   - Responses in Italian (Italiano)
+# ... and many more languages supported
+```
+
+**Benefits:**
+- ✅ No Docker dependency (lighter footprint)
+- ✅ Better performance (no container overhead) 
+- ✅ Direct system integration with systemd
+- ✅ Lower resource usage (~500MB vs ~2GB with Docker)
+- ✅ Multiple AI model options (Gemma 3n [default], Qwen 3, LLaMA 3.2, Phi-3)
+- ✅ Multilingual support (English, Spanish, French, German, Chinese, Japanese, and more)
+- ✅ Optional AI model download (5.6GB Gemma 3n or smaller alternatives)
+
+### 🐳 Docker Installation
+```bash
+curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install.sh | sudo bash
+```
+
+**Benefits:**
+- ✅ Consistent environment across systems
+- ✅ Easy to containerize and scale
+- ✅ Isolated from host system
+- ✅ Manual configuration for model and language preferences
+
+### Manual Installation
+```bash
+# Clone the repository
+git clone https://github.com/Hilo-Inc/robolog.git
+cd robolog
+
+# Choose your installation method:
+# Native (recommended):
+chmod +x install-native.sh
+sudo ./install-native.sh
+
+# OR Docker:
+chmod +x install.sh
+sudo ./install.sh
+
+# Configure your Discord webhook
+robolog config
+
+# Start the service
+robolog start
+```
+
+### Using Make (Development)
+```bash
+# Clone and setup
+git clone https://github.com/Hilo-Inc/robolog.git
+cd robolog
+
+# Setup development environment
+make dev-setup
+
+# Start services
+make start
+
+# Test the system
+make test-errors
+```
+
+## 🆚 Installation Comparison
+
+| Feature | Native Installation | Docker Installation |
+|---------|-------------------|-------------------|
+| **Dependencies** | Node.js, Fluent Bit, Ollama | Docker, Docker Compose |
+| **Resource Usage** | ~500MB RAM | ~2GB RAM |
+| **Performance** | Direct execution | Container overhead |
+| **System Integration** | Full systemd integration | Limited integration |
+| **Isolation** | Shared with host | Containerized |
+| **Updates** | Component-based | Image-based |
+| **AI Model Options** | Interactive selection | Manual configuration |
+| **Language Support** | Interactive selection | Manual configuration |
+| **Installation Time** | 2-15 min (depends on model) | 5-20 min |
+| **Best For** | Production servers, VPS | Development, K8s |
+
+## 🛠️ Management Commands
+
+After installation, use these commands to manage Robolog:
 
 ```bash
-docker compose pull           # fetch ollama & fluent-bit
-ollama pull gemma:3n          # optional: pre‑pull model locally
-docker compose up -d         # spin up full stack
-````
+# Service control
+robolog start          # Start all services
+robolog stop           # Stop all services
+robolog restart        # Restart all services
+robolog status         # Show service status
 
-Within \~1 minute the analyzer will start posting critical summaries to your Discord channel.
+# Monitoring and testing
+robolog logs           # View logs from all services
+robolog test-errors    # Generate realistic test errors
+robolog health         # Check system health
 
----
+# Configuration
+robolog config         # Edit configuration file
+robolog update         # Update to latest version
+robolog uninstall      # Completely remove Robolog
 
-# 🛠️ Tuning
+# 📝 Configuration includes:
+# - Discord webhook URL for notifications
+# - AI model selection (gemma3n:e2b [default], qwen3:8b, llama3.2:1b, phi3:mini)
+# - Language preference (English, Spanish, French, German, Chinese, Japanese, etc.)
+# - Polling interval and other settings
+```
 
-* Adjust `FILTER` in `analyze.js` (regex) or extend logic for severity levels.
-* Change `POLL_MS` for faster or slower cadence.
-* Modify `fluent-bit.conf` outputs (Elastic, Loki, etc.) for full observability.
+## 🔧 Configuration
 
-> Enjoy hands‑free LLM‑powered ops monitoring! 🎉
-
----
-
-# ✅ Verifying Analyzer <-> Ollama Communication
-
-| What to check                         | How to do it                                                                                                                                     | What you should see                                                             |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| **1. Watch analyzer’s stdout**        | `docker compose logs -f analyzer`                                                                                                                | A line every 60s like:<br>`Analyzer pulled X log lines…` or error stack traces. |
-| **2. See Ollama’s request log**       | `docker compose logs -f ollama`                                                                                                                  | Entries like:<br>`/api/generate 200 … model=gemma:3n` on each analyzer call.    |
-| **3. Tail Discord**                   | Open the Discord channel you supplied.                                                                                                           | Messages that start with **“⚠️ Gemma summary:”** from successful summaries.     |
-| **4. Force a test event**             | `docker compose exec app bash -c 'echo "ERROR test message" >&2'`                                                                                | Within a minute, analyzer posts summary to Discord.                             |
-| **5. Inspect analyzer’s last prompt** | `docker compose exec analyzer tail -n 20 /tmp/last_prompt.txt`<br>Add `fs.writeFileSync('/tmp/last_prompt.txt', prompt)` to `summarize()` method | Full prompt text just sent to Gemma, e.g., disk/memory/log summary.             |
-
----
-
-### 🔭 Watch Both Containers Side-by-Side
-
+Edit the configuration file:
 ```bash
-docker compose logs -f --tail=20 analyzer ollama
+robolog config
 ```
 
-*(Ctrl-C to stop)*
-
----
-
-# 🧪 If Nothing Shows Up
-
-1. **Too strict log filter?**
-
-   Broaden regex in `analyze.js` to `/./`, then rebuild:
-
-   ```bash
-   docker compose build analyzer
-   docker compose up -d
-   ```
-
-2. **Confirm environment variables**
-
-   ```bash
-   docker compose exec analyzer printenv | grep OLLAMA_URL
-   ```
-
-   Should output:
-
-   ```
-   http://ollama:11434
-   ```
-
-3. **Manual curl test**
-
-   ```bash
-   docker compose exec analyzer sh
-   apk add --no-cache curl  # if curl not installed
-   curl -s http://ollama:11434/api/generate \
-     -H 'Content-Type: application/json' \
-     -d '{"model":"gemma:3n","prompt":"Hello","stream":false}'
-   ```
-
-   You should get a JSON response with `response: "Hello …"`.
-
----
-
-# 🔥 Smoke Tests
-
-Each writes a log line matching `ERROR | CRIT | WARN`:
-
-✅ Triggers Fluent Bit → Analyzer → Gemma → Discord (if webhook set).
-
----
-
-## 1 · Fire an error from the Node app
-
+Add your Discord webhook URL and configure language:
 ```bash
-docker compose exec app bash
-echo "ERROR test – something went wrong at $(date)" >&2
-exit
+# Get webhook URL from Discord: Server Settings > Integrations > Webhooks
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+
+# Set your preferred language for AI responses
+LANGUAGE=English  # Options: English, Spanish, French, German, Chinese, Japanese, Portuguese, Russian, Italian, etc.
+
+# AI model selection (Gemma 3n is recommended for best quality)
+MODEL_NAME=gemma3n:e2b  # Options: gemma3n:e2b [default], qwen3:8b, llama3.2:1b, phi3:mini
 ```
 
----
+## 🧪 Testing
 
-## 2 · Write to Nginx error log
-
+Generate realistic test errors to verify the system:
 ```bash
-docker compose exec app bash -c \
-  'echo "2025/07/04 19:30:00 [crit] 123#123: *1 critical failure test" >> /var/log/nginx/error.log'
+robolog test-errors
 ```
 
----
+This creates:
+- **Nginx errors** (502 Bad Gateway)
+- **System errors** (disk space critical)
+- **Database errors** (connection failures)
+- **Memory warnings** (high usage alerts)
 
-## 3 · Use `logger` (syslog)
+Check your Discord channel within 60 seconds for the AI-powered analysis in your configured language!
 
-```bash
-docker compose exec app logger -p user.err "ERROR synthetic syslog test"
+## 📊 Features
+
+- **🤖 AI-Powered Analysis**: Uses Ollama with multiple model options (Gemma 3n [default], Qwen 3, LLaMA 3.2, Phi-3)
+- **🌐 Multilingual Support**: Receive notifications in your preferred language (English, Spanish, French, German, Chinese, Japanese, and more)
+- **🔍 Multi-Level Filtering**: Automatically categorizes by severity (CRITICAL, ERROR, WARNING)
+- **📱 Discord Integration**: Sends structured summaries to Discord channels
+- **🏗️ Multi-Application Support**: Monitors nginx, system, database, and application logs
+- **⚡ Real-time Processing**: Processes logs as they're generated
+- **🔄 Auto-restart**: Resilient service management with systemd
+- **🛡️ Resource Protection**: Built-in safeguards against log file overflow
+
+## 🏗️ Architecture
+
+### Native Installation
+```
+System Logs → Fluent Bit → Analyzer (Node.js) → Ollama (AI) → Discord
+     ↓
+/var/log/* → systemd → /opt/robolog/logs/all.log → AI Analysis → Notifications
 ```
 
----
-
-### 📺 Watch It Happen
-
-```bash
-docker compose logs -f analyzer ollama fluent-bit
+### Docker Installation  
+```
+Container Logs → Docker Logging → Fluent Bit → Analyzer → Ollama (AI) → Discord
 ```
 
-Typical sequence:
+**Components:**
+- **Fluent Bit**: Collects and centralizes logs (system logs for native, container logs for Docker)
+- **Analyzer**: Node.js service that filters, structures, and analyzes logs
+- **Ollama**: Local AI model serving (Gemma 3n [default], Qwen 3, LLaMA 3.2, or Phi-3) for intelligent analysis
+- **Discord**: Notification delivery with structured summaries and recommendations
 
-1. `fluent-bit` logs a new entry.
+## 🔄 Supported Linux Distributions
 
-2. \~0–60s later `analyzer` prints:
-
-   ```bash
-   Picked up 1 ERROR lines (123B)… summarising
-   ```
-
-3. `ollama` logs a `/api/generate 200 … model=gemma:3n` call.
-
-4. `analyzer` posts to Discord (if configured).
-
----
-
-# 🧹 Log Management & Helpful Commands
-
-## 📂 Download Log File
-
-```bash
-docker compose exec fluent-bit cat /logs/all.log > all.log
-```
-
-You can then `scp` or copy the file locally from the host.
-
----
-
-## 🧽 Clear Logs (Fluent Bit Shared Volume)
-
-```bash
-docker compose exec fluent-bit sh -c 'truncate -s 0 /logs/all.log'
-```
-
-To wipe it completely:
-
-```bash
-docker compose exec fluent-bit sh -c 'rm /logs/all.log && touch /logs/all.log'
-```
-
----
-
-## 📋 Check Log Volume Size
-
-```bash
-docker compose exec fluent-bit du -sh /logs
-```
-
----
-
-## 🔄 Restart a Specific Service
-
-```bash
-docker compose restart analyzer
-```
-
----
-
-## 🧰 Rebuild Image (after code change)
-
-```bash
-docker compose build analyzer
-docker compose up -d
-```
-
----
-
-## 🔒 Enter Shell Inside Any Container
-
-```bash
-docker compose exec <service_name> sh
-# or use 'bash' if available:
-docker compose exec <service_name> bash
-```
-
-Example:
-
-```bash
-docker compose exec analyzer sh
-```
-
----
-
-# 🧯 Troubleshooting
-
-| Symptom                                        | Check                                                                         |
-| ---------------------------------------------- | ----------------------------------------------------------------------------- |
-| No line appears in `/logs/all.log`             | Make sure the log was written to `/var/log` or the container’s stdout/stderr. |
-| `/logs/all.log` updates, but analyzer is quiet | Does the line contain `ERROR`, `CRIT`, or `WARN`? Check your `FILTER` regex.  |
-| Analyzer shows Ollama error                    | Ensure model is pulled: `docker compose exec ollama ollama pull gemma:3n`     |
-| Discord is silent                              | Is `DISCORD_WEBHOOK_URL` set in `.env`? Is the URL valid and reachable?       |
-
----
-
-✅ Once you're seeing logs flow from Fluent Bit to Analyzer, Gemma calls via Ollama, and summaries landing in Discord—you’re ready to roll! 🚀
-
-```
-
-Let me know if you'd like to include a `Makefile` or some script-based wrappers (like `make logs`, `make test-error`, etc.) for simplified local development.
-```
+- **Ubuntu** 20.04+ / **Debian** 11+
+- **CentOS** 7+ / **RHEL** 7+
+- **Fedora** 35+
+- **Arch Linux**

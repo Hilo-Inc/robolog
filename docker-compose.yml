@@ -1,7 +1,5 @@
-version: '3.9'
-
 volumes:
-  logs:           # central log files collected by Fluent Bit
+  logs:           # central log files collected by Fluent Bit
   ollama:         # model cache for Ollama
 
 services:
@@ -14,15 +12,10 @@ services:
       - fluent-bit
     volumes:
       - logs:/var/log
-    logging:
-      driver: "fluentd"
-      options:
-        fluentd-address: fluent-bit:24224
-        fluentd-async-connect: "true"
     ports:
       - "80:80"
 
-  # 👉 Ollama serving Gemma 3n (e2b)
+  # 👉 Ollama serving Gemma 3n (e2b)
   ollama:
     image: ollama/ollama
     container_name: ollama
@@ -33,7 +26,7 @@ services:
     ports:
       - "11434:11434"
 
-  # 👉 Fluent Bit – centralise all container logs into /logs/all.log
+  # 👉 Fluent Bit – centralise all container logs into /logs/all.log
   fluent-bit:
     image: fluent/fluent-bit:3.0
     container_name: fluent-bit
@@ -57,5 +50,6 @@ services:
     restart: unless-stopped
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - MODEL_NAME=gemma3n:e2b
+      - MODEL_NAME=gemma3n:e2b  # Options: gemma3n:e2b [default], qwen3:8b, llama3.2:1b, phi3:mini
+      - LANGUAGE=English        # Language for AI responses (English, Spanish, French, German, Chinese, Japanese, etc.)
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
