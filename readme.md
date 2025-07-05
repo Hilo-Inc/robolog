@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-nativ
 curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash -s -- --skip-model
 
 # Auto-download specific model with language preference
-curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash -s -- --yes --model gemma3n:e2b --language English
+curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash -s -- --yes --model gemma3n:e2b --language English --platform slack
 
 # Available options:
 # --model gemma3n:e2b  (5.6GB) - Google Gemma 3n [default]
@@ -36,6 +36,13 @@ curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-nativ
 # --language Portuguese - Responses in Portuguese (Português)
 # --language Russian   - Responses in Russian (Русский)
 # --language Italian   - Responses in Italian (Italiano)
+# --platform discord   - Discord webhooks [default]
+# --platform slack     - Slack incoming webhooks
+# --platform teams     - Microsoft Teams connectors
+# --platform telegram  - Telegram bot API
+# --platform mattermost - Mattermost incoming webhooks
+# --platform rocketchat - Rocket.Chat integrations
+# --platform generic   - Generic JSON webhook endpoint
 # ... and many more languages supported
 ```
 
@@ -134,7 +141,7 @@ robolog update         # Update to latest version
 robolog uninstall      # Completely remove Robolog
 
 # 📝 Configuration includes:
-# - Discord webhook URL for notifications
+# - Webhook URL and platform selection (Discord, Slack, Teams, Telegram, Mattermost, Rocket.Chat, Generic)
 # - AI model selection (gemma3n:e2b [default], qwen3:8b, llama3.2:1b, phi3:mini)
 # - Language preference (English, Spanish, French, German, Chinese, Japanese, etc.)
 # - Polling interval and other settings
@@ -147,10 +154,20 @@ Edit the configuration file:
 robolog config
 ```
 
-Add your Discord webhook URL and configure language:
+Add your webhook URL and configure platform:
 ```bash
-# Get webhook URL from Discord: Server Settings > Integrations > Webhooks
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+# Webhook Platform Configuration
+WEBHOOK_PLATFORM=discord  # Options: discord, slack, teams, telegram, mattermost, rocketchat, generic
+WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+
+# Platform-specific examples:
+# Discord: https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN
+# Slack: https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
+# Teams: https://outlook.office.com/webhook/YOUR_TEAMS_WEBHOOK_URL
+# Telegram: https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>
+# Mattermost: https://your-mattermost.com/hooks/YOUR_WEBHOOK_ID
+# Rocket.Chat: https://your-rocketchat.com/hooks/YOUR_WEBHOOK_ID
+# Generic: Any HTTP endpoint that accepts JSON POST requests
 
 # Set your preferred language for AI responses
 LANGUAGE=English  # Options: English, Spanish, French, German, Chinese, Japanese, Portuguese, Russian, Italian, etc.
@@ -172,14 +189,14 @@ This creates:
 - **Database errors** (connection failures)
 - **Memory warnings** (high usage alerts)
 
-Check your Discord channel within 60 seconds for the AI-powered analysis in your configured language!
+Check your webhook platform within 60 seconds for the AI-powered analysis in your configured language!
 
 ## 📊 Features
 
 - **🤖 AI-Powered Analysis**: Uses Ollama with multiple model options (Gemma 3n [default], Qwen 3, LLaMA 3.2, Phi-3)
 - **🌐 Multilingual Support**: Receive notifications in your preferred language (English, Spanish, French, German, Chinese, Japanese, and more)
+- **📱 Multi-Platform Webhooks**: Supports Discord, Slack, Microsoft Teams, Telegram, Mattermost, Rocket.Chat, and generic webhooks
 - **🔍 Multi-Level Filtering**: Automatically categorizes by severity (CRITICAL, ERROR, WARNING)
-- **📱 Discord Integration**: Sends structured summaries to Discord channels
 - **🏗️ Multi-Application Support**: Monitors nginx, system, database, and application logs
 - **⚡ Real-time Processing**: Processes logs as they're generated
 - **🔄 Auto-restart**: Resilient service management with systemd
@@ -189,21 +206,21 @@ Check your Discord channel within 60 seconds for the AI-powered analysis in your
 
 ### Native Installation
 ```
-System Logs → Fluent Bit → Analyzer (Node.js) → Ollama (AI) → Discord
+System Logs → Fluent Bit → Analyzer (Node.js) → Ollama (AI) → Webhook Platform
      ↓
 /var/log/* → systemd → /opt/robolog/logs/all.log → AI Analysis → Notifications
 ```
 
 ### Docker Installation  
 ```
-Container Logs → Docker Logging → Fluent Bit → Analyzer → Ollama (AI) → Discord
+Container Logs → Docker Logging → Fluent Bit → Analyzer → Ollama (AI) → Webhook Platform
 ```
 
 **Components:**
 - **Fluent Bit**: Collects and centralizes logs (system logs for native, container logs for Docker)
 - **Analyzer**: Node.js service that filters, structures, and analyzes logs
 - **Ollama**: Local AI model serving (Gemma 3n [default], Qwen 3, LLaMA 3.2, or Phi-3) for intelligent analysis
-- **Discord**: Notification delivery with structured summaries and recommendations
+- **Webhook Platform**: Multi-platform notification delivery (Discord, Slack, Teams, Telegram, etc.) with structured summaries and recommendations
 
 ## 🔄 Supported Linux Distributions
 

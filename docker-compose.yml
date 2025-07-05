@@ -52,4 +52,7 @@ services:
       - OLLAMA_URL=http://ollama:11434
       - MODEL_NAME=gemma3n:e2b  # Options: gemma3n:e2b [default], qwen3:8b, llama3.2:1b, phi3:mini
       - LANGUAGE=English        # Language for AI responses (English, Spanish, French, German, Chinese, Japanese, etc.)
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - WEBHOOK_PLATFORM=discord # Options: discord [default], slack, teams, telegram, mattermost, rocketchat, generic
+      # Legacy support (will use WEBHOOK_URL if set)
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}

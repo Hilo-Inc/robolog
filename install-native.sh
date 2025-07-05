@@ -211,6 +211,9 @@ Environment=NODE_ENV=production
 Environment=OLLAMA_URL=http://localhost:11434
 Environment=MODEL_NAME=\${MODEL_NAME:-gemma3n:e2b}
 Environment=LANGUAGE=\${LANGUAGE:-English}
+Environment=WEBHOOK_URL=\${WEBHOOK_URL}
+Environment=WEBHOOK_PLATFORM=\${WEBHOOK_PLATFORM:-discord}
+Environment=DISCORD_WEBHOOK_URL=\${DISCORD_WEBHOOK_URL}
 EnvironmentFile=-$INSTALL_DIR/.env
 
 [Install]
@@ -314,9 +317,62 @@ setup_config() {
     echo -e "${BLUE}Selected language: $SELECTED_LANGUAGE${NC}"
     echo ""
     
+    # Ask for webhook platform
+    echo -e "${BLUE}Select your webhook platform for notifications:${NC}"
+    echo -e "${YELLOW}1) Discord ${NC}[default]"
+    echo -e "${YELLOW}2) Slack${NC}"
+    echo -e "${YELLOW}3) Microsoft Teams${NC}"
+    echo -e "${YELLOW}4) Telegram${NC}"
+    echo -e "${YELLOW}5) Mattermost${NC}"
+    echo -e "${YELLOW}6) Rocket.Chat${NC}"
+    echo -e "${YELLOW}7) Generic Webhook${NC}"
+    echo ""
+    
+    read -p "Select platform (1-7) or press Enter for Discord [1]: " -n 1 -r
+    echo
+    
+    case $REPLY in
+        2)
+            SELECTED_PLATFORM="slack"
+            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Slack: Apps > Incoming Webhooks > Add New Webhook"
+            ;;
+        3)
+            SELECTED_PLATFORM="teams"
+            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Teams: Channel > Connectors > Incoming Webhook"
+            ;;
+        4)
+            SELECTED_PLATFORM="telegram"
+            WEBHOOK_INSTRUCTIONS="# Create Telegram bot: @BotFather > /newbot, then use https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>"
+            ;;
+        5)
+            SELECTED_PLATFORM="mattermost"
+            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Mattermost: Integrations > Incoming Webhooks"
+            ;;
+        6)
+            SELECTED_PLATFORM="rocketchat"
+            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Rocket.Chat: Administration > Integrations > Incoming"
+            ;;
+        7)
+            SELECTED_PLATFORM="generic"
+            WEBHOOK_INSTRUCTIONS="# Provide any HTTP endpoint that accepts JSON POST requests"
+            ;;
+        *)
+            SELECTED_PLATFORM="discord"
+            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Discord: Server Settings > Integrations > Webhooks"
+            ;;
+    esac
+    
+    echo -e "${BLUE}Selected platform: $SELECTED_PLATFORM${NC}"
+    echo ""
+    
     cat > $INSTALL_DIR/.env << EOF
-# Discord Webhook URL for notifications
-# Get this from your Discord server settings > Integrations > Webhooks
+# Webhook configuration for notifications
+$WEBHOOK_INSTRUCTIONS
+WEBHOOK_URL=
+WEBHOOK_PLATFORM=$SELECTED_PLATFORM
+
+# Legacy Discord support (for backwards compatibility)
+# If you're using Discord, you can set either WEBHOOK_URL or DISCORD_WEBHOOK_URL
 DISCORD_WEBHOOK_URL=
 
 # Ollama model - choose from available options:
@@ -535,6 +591,7 @@ main() {
     AUTO_YES=false
     MODEL_NAME="gemma3n:e2b"  # Default model
     SELECTED_LANGUAGE="English"  # Default language
+    SELECTED_PLATFORM="discord"  # Default platform
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -554,6 +611,10 @@ main() {
                 SELECTED_LANGUAGE="$2"
                 shift 2
                 ;;
+            --platform)
+                SELECTED_PLATFORM="$2"
+                shift 2
+                ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo "Options:"
@@ -561,6 +622,7 @@ main() {
                 echo "  --yes, -y           Automatically download model without prompting"
                 echo "  --model MODEL_NAME  Specify model to download (gemma3n:e2b, qwen3:8b, llama3.2:1b, phi3:mini)"
                 echo "  --language LANG     Specify language for AI responses (English, Spanish, French, German, Chinese, Japanese, etc.)"
+                echo "  --platform PLATFORM Specify webhook platform (discord, slack, teams, telegram, mattermost, rocketchat, generic)"
                 echo "  --help, -h          Show this help message"
                 exit 0
                 ;;

@@ -15,7 +15,8 @@ const ensureLogFile = () => {
 ensureLogFile();
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://ollama:11434';
 const MODEL = process.env.MODEL_NAME || 'gemma3n:e2b';
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const WEBHOOK_URL = process.env.WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL; // Support both for backwards compatibility
+const WEBHOOK_PLATFORM = process.env.WEBHOOK_PLATFORM || 'discord'; // discord, slack, teams, telegram, generic
 const LANGUAGE = process.env.LANGUAGE || 'English';
 
 const FILTER = /(ERROR|CRIT|WARN)/i;   // <- adjustable regex filter
@@ -171,13 +172,99 @@ Provide a structured analysis following the format above in ${LANGUAGE}:`;
     return json.response;
 }
 
-async function postToDiscord(msg) {
-    if (!DISCORD_WEBHOOK_URL) return;
-    await fetch(DISCORD_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: msg.slice(0, 1900) }) // Discord limit safeguard
-    });
+// Webhook payload formatters for different platforms
+function formatWebhookPayload(message, platform) {
+    const truncatedMessage = message.slice(0, 3900); // Safe limit for most platforms
+    
+    switch (platform.toLowerCase()) {
+        case 'discord':
+            return {
+                content: truncatedMessage.slice(0, 1900) // Discord has 2000 char limit
+            };
+            
+        case 'slack':
+            return {
+                text: truncatedMessage,
+                mrkdwn: true,
+                username: "Robolog",
+                icon_emoji: ":robot_face:"
+            };
+            
+        case 'teams':
+            return {
+                "@type": "MessageCard",
+                "@context": "http://schema.org/extensions",
+                "themeColor": "0076D7",
+                "summary": "Robolog Alert",
+                "sections": [{
+                    "activityTitle": "🤖 Robolog Alert",
+                    "activitySubtitle": `AI Log Analysis (${LANGUAGE})`,
+                    "text": truncatedMessage,
+                    "markdown": true
+                }]
+            };
+            
+        case 'telegram':
+            return {
+                text: truncatedMessage,
+                parse_mode: "Markdown",
+                disable_web_page_preview: true
+            };
+            
+        case 'mattermost':
+            return {
+                text: truncatedMessage,
+                username: "Robolog",
+                icon_emoji: ":robot_face:"
+            };
+            
+        case 'rocketchat':
+            return {
+                text: truncatedMessage,
+                username: "Robolog",
+                emoji: ":robot_face:"
+            };
+            
+        case 'webhook':
+        case 'generic':
+        default:
+            return {
+                message: truncatedMessage,
+                platform: "robolog",
+                timestamp: new Date().toISOString(),
+                language: LANGUAGE,
+                source: "ai-log-analysis"
+            };
+    }
+}
+
+async function sendWebhook(message) {
+    if (!WEBHOOK_URL) return;
+    
+    try {
+        const payload = formatWebhookPayload(message, WEBHOOK_PLATFORM);
+        const headers = { 'Content-Type': 'application/json' };
+        
+        // Add special headers for specific platforms
+        if (WEBHOOK_PLATFORM.toLowerCase() === 'telegram') {
+            // For Telegram bot API, the URL should include the bot token
+            // Format: https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>
+        }
+        
+        const response = await fetch(WEBHOOK_URL, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            console.error(`Webhook failed: ${response.status} ${response.statusText}`);
+            const errorBody = await response.text();
+            console.error(`Error details: ${errorBody}`);
+        }
+    } catch (error) {
+        console.error('Webhook error:', error);
+    }
 }
 
 function extractLogMessages(rawLog) {
@@ -208,7 +295,7 @@ function extractLogMessages(rawLog) {
         if (newLines) {
             try {
                 const summary = await summarize(newLines);
-                await postToDiscord(`🤖 AI Log Analysis (${LANGUAGE}):\n${summary}`);
+                await sendWebhook(`🤖 AI Log Analysis (${LANGUAGE}):\n${summary}`);
             } catch (e) {
                 console.error('Analyzer error', e);
             }
