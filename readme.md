@@ -56,6 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-nativ
 - ✅ Optional AI model download (5.6GB Gemma 3n or smaller alternatives)
 
 ### 🐳 Docker Installation
+For a demo using pre-installed Docker [Desktop] go to the bottom section "Docker Quickstart" using a docker-compose.yml 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install.sh | sudo bash
 ```
@@ -215,6 +216,98 @@ System Logs → Fluent Bit → Analyzer (Node.js) → Ollama (AI) → Webhook Pl
 ```
 Container Logs → Docker Logging → Fluent Bit → Analyzer → Ollama (AI) → Webhook Platform
 ```
+
+
+## 🐳 Docker Compose Quick Start
+
+The fastest way to try Robolog is by running all components with [Docker Compose](https://docs.docker.com/compose/):
+
+1. **Clone the repo:**
+
+   ```bash
+   git clone https://github.com/Hilo-Inc/robolog.git
+   cd robolog
+   ```
+
+2. **Configure environment variables:**
+   Copy `.env.example` to `.env` and edit your webhook details:
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your WEBHOOK_URL and desired settings
+   nano .env
+   ```
+
+    * Set `WEBHOOK_URL` to your Discord/Slack/Teams/etc. webhook.
+    * (Optional) Adjust `MODEL_NAME`, `LANGUAGE`, and `WEBHOOK_PLATFORM` as needed.
+
+3. **Build all containers:**
+
+   ```bash
+   docker compose build
+   ```
+
+4. **Start all services:**
+
+   ```bash
+   docker compose up -d
+   ```
+
+5. **Test your setup:**
+   Trigger a test alert to verify notifications are working:
+
+   ```bash
+   docker compose exec analyzer node /app/test-errors.js
+   ```
+
+   Or check your webhook platform for real notifications within a minute.
+
+6. **Stop the system:**
+
+   ```bash
+   docker compose down
+   ```
+
+**Default exposed ports:**
+
+* Robolog (Nginx/web): `80`
+* Ollama (AI backend): `11434`
+* Fluent Bit (logs): `24224`
+
+**Log files are stored in a shared Docker volume:**
+You can inspect logs with:
+
+```bash
+docker compose exec fluent-bit tail -f /logs/all.log
+```
+
+**Tips:**
+
+* To view logs for a specific container:
+  `docker compose logs -f analyzer`
+* To force re-pull latest base images:
+  `docker compose pull && docker compose build --no-cache`
+
+---
+
+### Example `.env`:
+
+```
+WEBHOOK_URL=https://discord.com/api/webhooks/XXX/YYY
+MODEL_NAME=gemma3n:e2b
+LANGUAGE=English
+WEBHOOK_PLATFORM=discord
+```
+
+---
+
+### Why use Docker Compose?
+
+* No manual installs—everything is containerized!
+* Easily run, update, or stop all Robolog components.
+* Suitable for dev, demo, or cloud deployments.
+
+---
 
 **Components:**
 - **Fluent Bit**: Collects and centralizes logs (system logs for native, container logs for Docker)
