@@ -2,9 +2,9 @@
   "name": "demo-app",
   "version": "1.0.0",
   "description": "Hello‑world service behind nginx",
-  "main": "index.js",
+  "main": "index.mjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.mjs"
   },
   "dependencies": {
     "express": "^4.19.2"
