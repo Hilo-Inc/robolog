@@ -40,4 +40,8 @@ app.get('/generate-realistic-errors', (_, res) => {
         note: 'Check Discord channel in ~60 seconds for structured analysis'
     });
 });
+// ✅ BEST PRACTICE: Add a dedicated health check endpoint.
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', service: 'app' });
+});
 app.listen(3000, () => console.log('App listening on :3000'));

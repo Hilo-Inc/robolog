@@ -1,3 +1,10 @@
+# C:/dev/robolog/docker-compose.yml
+
+# ✨ 1. Define a custom network for your application stack
+networks:
+  robolog-net:
+    driver: bridge
+
 volumes:
   logs:           # central log files collected by Fluent Bit
   ollama:         # model cache for Ollama
@@ -10,21 +17,37 @@ services:
     restart: unless-stopped
     depends_on:
       - fluent-bit
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000/health" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
     volumes:
       - logs:/var/log
     ports:
       - "80:80"
+    networks: # ✨ 2. Add the service to your custom network
+      - robolog-net
 
   # 👉 Ollama serving Gemma 3n (e2b)
   ollama:
     image: ollama/ollama
     container_name: ollama
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
     volumes:
       - ollama:/root/.ollama
-    command: ["serve"]   # entrypoint is already `ollama`
+    command: ["serve"]
     ports:
       - "11434:11434"
+    networks: # ✨ 2. Add the service to your custom network
+      - robolog-net
 
   # 👉 Fluent Bit – centralise all container logs into /logs/all.log
   fluent-bit:
@@ -35,24 +58,35 @@ services:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     ports:
-      - "24224:24224"        # forwarder input
+      - "24224:24224"
     restart: unless-stopped
+    networks: # ✨ 2. Add the service to your custom network
+      - robolog-net
 
   # 👉 Log Analyzer – Node script that calls Gemma & posts to Discord
   analyzer:
     build: ./analyzer
     container_name: analyzer
     depends_on:
-      - ollama
-      - fluent-bit
+      ollama:
+        condition: service_healthy # depends_on can be more specific
+      fluent-bit:
+        condition: service_started
     volumes:
       - logs:/logs
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9880/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - MODEL_NAME=gemma3n:e2b  # Options: gemma3n:e2b [default], qwen3:8b, llama3.2:1b, phi3:mini
-      - LANGUAGE=English        # Language for AI responses (English, Spanish, French, German, Chinese, Japanese, etc.)
+      - MODEL_NAME=gemma3n:e2b
+      - LANGUAGE=English
       - WEBHOOK_URL=${WEBHOOK_URL}
-      - WEBHOOK_PLATFORM=discord # Options: discord [default], slack, teams, telegram, mattermost, rocketchat, generic
-      # Legacy support (will use WEBHOOK_URL if set)
+      - WEBHOOK_PLATFORM=discord
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+    networks: # ✨ 2. Add the service to your custom network
+      - robolog-net

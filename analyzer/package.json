@@ -5,6 +5,7 @@
   "description": "Tail container logs, feed Gemma via Ollama, and post summaries to Discord.",
   "main": "analyze.js",
   "dependencies": {
+    "express": "^4.19.2",
     "node-fetch": "^3.3.2"
   },
   "license": "MIT"
