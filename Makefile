@@ -101,17 +101,17 @@ build:
 
 dev-rebuild:
 	@echo "🔨 Rebuilding and restarting for development..."
-	@docker-compose build
-	@docker-compose up -d
+	@docker-compose -f docker-compose.yml -f docker-compose.dev.yml build
+	@docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Development mode
 dev-start:
-	@echo "🚀 Starting in development mode..."
-	@docker-compose up
+	@echo "🚀 Starting in development mode with live file mounting..."
+	@docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 
 dev-logs:
 	@echo "📋 Following development logs..."
-	@docker-compose logs -f
+	@docker-compose -f docker-compose.yml -f docker-compose.dev.yml logs -f
 
 # Cleanup
 clean:
@@ -134,11 +134,11 @@ dev-setup:
 		cp .env.example .env 2>/dev/null || echo "DISCORD_WEBHOOK_URL=" > .env; \
 		echo "📝 Created .env file - please configure your Discord webhook"; \
 	fi
-	@make build
+	@docker-compose -f docker-compose.yml -f docker-compose.dev.yml build
 	@echo "✅ Development environment ready!"
 	@echo "💡 Next steps:"
 	@echo "  1. Edit .env file: make config"
-	@echo "  2. Start services: make start"
+	@echo "  2. Start services: make dev-start"
 	@echo "  3. Test errors: make test-errors"
 
 # Health check

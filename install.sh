@@ -269,7 +269,12 @@ case "$1" in
         ;;
     update)
         echo "🔄 Updating Robolog..."
-        cd $INSTALL_DIR && docker-compose pull && docker-compose up -d
+        cd /tmp
+        curl -fsSL https://github.com/Hilo-Inc/robolog/archive/refs/heads/main.tar.gz | tar -xz
+        cp -r robolog-main/* $INSTALL_DIR/
+        rm -rf /tmp/robolog-main
+        cd $INSTALL_DIR && docker-compose build && docker-compose up -d
+        echo "✅ Update completed"
         ;;
     uninstall)
         echo "🗑️ Uninstalling Robolog..."
