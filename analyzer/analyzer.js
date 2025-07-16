@@ -7,7 +7,6 @@ import fetch from 'node-fetch';
 
 // --- Configuration ---
 const PORT = process.env.ANALYZER_PORT || 9880;
-const WEBSOCKET_PORT = 9881;
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://ollama:11434';
 const MODEL = process.env.MODEL_NAME || 'gemma3n:e2b';
 // ✅ Webhook URL is now managed dynamically, with an optional initial value.
@@ -16,10 +15,14 @@ const WEBHOOK_PLATFORM = process.env.WEBHOOK_PLATFORM || 'discord';
 const LANGUAGE = process.env.LANGUAGE || 'English';
 const FILTER = /(ERROR|CRIT|WARN)/i;
 const BATCH_INTERVAL_MS = 15000;
+// ✅ BEST PRACTICE: Define a character limit for the log data in the prompt.
+const MAX_PROMPT_LOG_CHARS = 8000;
 
 // --- State for Batching ---
 // ✅ The buffer now stores structured, parsed log objects.
 let logBuffer = [];
+// ✅ Add a new state variable to hold the last generated prompt for debugging.
+let lastPrompt = 'No prompt has been generated yet.';
 
 // --- Core Logic ---
 async function processLogBuffer() {
@@ -56,6 +59,12 @@ app.use(express.json({ limit: '64mb' }));
 // ✅ Create an HTTP server to attach both Express and Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
+
+// ✅ BEST PRACTICE: Log WebSocket connection events for visibility.
+io.on('connection', (socket) => {
+    console.log(`A new client connected to the WebSocket. ID: ${socket.id}`);
+    socket.on('disconnect', () => console.log(`Client disconnected. ID: ${socket.id}`));
+});
 
 app.post('/logs', (req, res) => {
     // Fluent Bit can send a single object or an array of objects.
@@ -94,15 +103,18 @@ app.post('/set-webhook', (req, res) => {
     }
 });
 
+// ✅ New endpoint for debugging the prompt sent to Ollama.
+app.get('/last-prompt', (req, res) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.status(200).send(lastPrompt);
+});
+
 server.listen(PORT, () => {
     console.log(`Log analyzer service listening on http://localhost:${PORT}`);
     // ✨ BEST PRACTICE: Add a check for the webhook URL on startup.
     if (!WEBHOOK_URL) console.warn('⚠️ WARNING: WEBHOOK_URL is not set. Discord/Slack notifications will be disabled until set via the UI.');
-    
-    // Start the WebSocket server on its dedicated port
-    io.listen(WEBSOCKET_PORT);
-    console.log(`WebSocket server listening on port ${WEBSOCKET_PORT}`);
 
+    // The WebSocket server is now running on the same port as the Express app.
     setInterval(processLogBuffer, BATCH_INTERVAL_MS);
     console.log(`Will process log batches every ${BATCH_INTERVAL_MS / 1000} seconds.`);
 });
@@ -185,6 +197,12 @@ async function summarize(parsedLogs) {
     });
     // --- End of restored logic ---
 
+    // ✅ FIX: Truncate the log data to a safe length to prevent oversized prompts
+    // that can crash the Ollama runner.
+    if (structuredLogs.length > MAX_PROMPT_LOG_CHARS) {
+        structuredLogs = structuredLogs.substring(0, MAX_PROMPT_LOG_CHARS) + "\n\n... (logs truncated due to length)";
+    }
+
     const prompt = `You are a DevOps assistant. Analyze these structured logs and provide a clear, actionable summary.
 
 INSTRUCTIONS:
@@ -204,6 +222,8 @@ ${diskReport()}
 Free memory: ${Math.round(os.freemem() / 1024 / 1024)}MB
 
 Provide a structured analysis following the format above in ${LANGUAGE}:`;
+
+    lastPrompt = prompt; // ✅ Store the generated prompt for debugging.
 
     console.log("Attempting to call Ollama for summary...");
 

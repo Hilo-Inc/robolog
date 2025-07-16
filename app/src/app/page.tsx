@@ -16,7 +16,11 @@ export default function Home() {
         const analyzerWsUrl = process.env.NEXT_PUBLIC_ANALYZER_WS_URL || "http://localhost:9881";
         console.log(`Connecting to WebSocket at: ${analyzerWsUrl}`);
 
-        const socket: Socket = io(analyzerWsUrl);
+        const socket = io(process.env.NEXT_PUBLIC_ANALYZER_WS_URL, {
+            path: "/analyzer/socket.io",
+            transports: ["websocket"],
+        });
+
 
         socket.on("connect", () => {
             setStatus("Connected to Analyzer");

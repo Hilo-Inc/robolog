@@ -10,6 +10,16 @@ volumes:
   ollama:         # model cache for Ollama
 
 services:
+  # 👉 This is a one-shot container that runs on startup to clear old logs.
+  # This ensures every `docker compose up` starts with a fresh slate.
+  log-cleaner:
+    image: busybox
+    container_name: log-cleaner
+    volumes:
+      - logs:/logs
+    # This command removes the archived log file and Fluent Bit's position database.
+    command: sh -c "echo 'Clearing persistent logs...' && rm -f /logs/all.log /logs/fluent-bit.db"
+
   # 👉 Main application with Nginx, Node, PM2
   app:
     build: ./app
@@ -32,7 +42,8 @@ services:
       - "443:443" # For the main HTTPS site
     environment:
       # ✅ BEST PRACTICE: Make frontend configuration portable via environment variables.
-      - NEXT_PUBLIC_ANALYZER_WS_URL=http://localhost:9881
+      # The WebSocket now connects to the analyzer's primary port.
+      - NEXT_PUBLIC_ANALYZER_WS_URL=ws://localhost:9880
     networks: # ✨ 2. Add the service to your custom network
       - robolog-net
 
@@ -47,6 +58,13 @@ services:
       timeout: 10s
       retries: 5
       start_period: 15s
+    deploy:
+      resources:
+        limits:
+          # ✅ BEST PRACTICE: Set explicit resource limits for memory-intensive services.
+          # This prevents a single container from consuming all host resources.
+          cpus: '4.0'
+          memory: '8G'
     volumes:
       - ollama:/root/.ollama
     command: ["serve"]
@@ -59,6 +77,9 @@ services:
   fluent-bit:
     image: fluent/fluent-bit:3.0
     container_name: fluent-bit
+    depends_on:
+      log-cleaner:
+        condition: service_completed_successfully
     volumes:
       - logs:/logs
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
@@ -74,6 +95,8 @@ services:
     build: ./analyzer
     container_name: analyzer
     depends_on:
+      log-cleaner:
+        condition: service_completed_successfully
       ollama:
         condition: service_healthy # depends_on can be more specific
       fluent-bit:
@@ -90,8 +113,8 @@ services:
       timeout: 10s
       retries: 5
       start_period: 15s
-    ports:
-      - "9881:9881"
+    ports: # ✅ Expose the single port used for both the API and WebSocket server.
+      - "9880:9880"
     environment:
       - OLLAMA_URL=http://ollama:11434
       - MODEL_NAME=gemma3n:e2b
