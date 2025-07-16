@@ -2,17 +2,18 @@ module.exports = {
     apps: [
         {
             name: 'demo-app',
-            // ✅ FIX: Use npm to run the start script from package.json.
-            // This is a more standard and robust approach that avoids the argument-passing
-            // issues seen when calling the 'next' binary directly from PM2.
-            script: 'npm',
-            args: 'start',
+            script: 'node_modules/next/dist/bin/next',
+            args: 'start -p 3000',
             instances: 1,
             autorestart: true,
             watch: false,
             env: {
                 NODE_ENV: 'production'
-            }
+            },
+            // ✅ FIX: Pipe PM2's output to the container's standard streams.
+            // This is the critical step that makes Next.js logs visible to Fluent Bit.
+            output: 'inherit',
+            error: 'inherit'
         }
     ]
 };

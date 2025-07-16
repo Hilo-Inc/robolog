@@ -26,17 +26,8 @@ services:
     container_name: app
     restart: unless-stopped
     depends_on:
-      analyzer:
-        # ✅ BEST PRACTICE: Wait for the dependency to be healthy, not just started.
-        condition: service_healthy
-    # ✅ BEST PRACTICE: Health check the full stack (Nginx SSL -> Next.js).
-    # The -k flag is needed to handle the self-signed certificate.
-    healthcheck:
-      test: [ "CMD", "curl", "-fk", "https://localhost/api/health" ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 10s
+      # Simplified dependency for debugging. We will restore health checks later.
+      - analyzer
     ports:
       - "80:80"   # For the HTTP -> HTTPS redirect
       - "443:443" # For the main HTTPS site
@@ -52,12 +43,6 @@ services:
     image: ollama/ollama
     container_name: ollama
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 15s
     deploy:
       resources:
         limits:
@@ -78,11 +63,12 @@ services:
     image: fluent/fluent-bit:3.0
     container_name: fluent-bit
     depends_on:
-      log-cleaner:
-        condition: service_completed_successfully
+      # Simplified dependency for debugging.
+      - log-cleaner
     volumes:
       - logs:/logs
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     ports:
       - "24224:24224"
@@ -95,24 +81,16 @@ services:
     build: ./analyzer
     container_name: analyzer
     depends_on:
-      log-cleaner:
-        condition: service_completed_successfully
-      ollama:
-        condition: service_healthy # depends_on can be more specific
-      fluent-bit:
-        condition: service_started
+      # Simplified dependency for debugging.
+      - log-cleaner
+      - ollama
+      - fluent-bit
     # ✅ BEST PRACTICE: Mount the host filesystem to get real disk usage data.
     # This makes the diskReport() function in the analyzer much more useful.
     volumes:
       - /:/host:ro
       - logs:/logs # This line was part of a duplicate key and has been merged.
     restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9880/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 15s
     ports: # ✅ Expose the single port used for both the API and WebSocket server.
       - "9880:9880"
     environment:

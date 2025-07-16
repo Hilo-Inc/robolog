@@ -45,12 +45,37 @@ export default function Home() {
         setIsGenerating(true);
         setSummary("Generating errors... Awaiting log analysis from Gemma...");
         try {
-            // This POST request is handled by the Next.js API route below
-            await fetch("/api/generate-realistic-errors", { method: "POST" });
+            const response = await fetch("/api/generate-realistic-errors", { method: "POST" });
+            // ✅ BEST PRACTICE: Check if the API call was successful.
+            // This provides immediate feedback if the backend endpoint has an issue.
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API call failed with status ${response.status}: ${errorText}`);
+            }
+            console.log("Successfully requested error generation from the backend.");
         } catch (error) {
-            console.error("Failed to trigger error generation:", error);
-            setSummary("Error: Could not trigger error generation.");
+            const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+            console.error("Failed to trigger error generation:", errorMessage);
+            setSummary(`Error: Could not trigger error generation.\n\n${errorMessage}`);
             setIsGenerating(false);
+        }
+    };
+
+    const handleDirectTest = async () => {
+        setSummary("Sending direct test log to analyzer...");
+        try {
+            const response = await fetch("/api/test-analyzer", { method: "POST" });
+            const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(`API call failed: ${result.message || response.statusText}`);
+            }
+            
+            setSummary(`Direct test log sent. Check for an AI Analysis in ~15 seconds.\n\nBackend response: ${result.message}`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+            console.error("Failed to trigger direct test:", errorMessage);
+            setSummary(`Error: Could not trigger direct test.\n\n${errorMessage}`);
         }
     };
 
@@ -111,13 +136,21 @@ export default function Home() {
 
                 <div className="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
                     <h2 className="text-xl font-semibold mb-3">2. Trigger Test Errors</h2>
-                    <button
-                        onClick={handleGenerateErrors}
-                        disabled={isGenerating}
-                        className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded disabled:bg-red-800 disabled:cursor-not-allowed"
-                    >
-                        {isGenerating ? "Analyzing..." : "Generate Realistic Errors"}
-                    </button>
+                    <div className="flex flex-col gap-4">
+                        <button
+                            onClick={handleGenerateErrors}
+                            disabled={isGenerating}
+                            className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded disabled:bg-red-800 disabled:cursor-not-allowed"
+                        >
+                            {isGenerating ? "Analyzing..." : "Generate Realistic Errors (via Fluent Bit)"}
+                        </button>
+                        <button
+                            onClick={handleDirectTest}
+                            className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded"
+                        >
+                            Test Analyzer Directly (Bypass Fluent Bit)
+                        </button>
+                    </div>
                 </div>
 
                 <div className="bg-gray-950 p-6 rounded-lg shadow-lg border border-gray-700">

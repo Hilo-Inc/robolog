@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
+import fs from 'fs';
 import { execSync } from 'child_process';
 import os from 'os';
 import fetch from 'node-fetch';
@@ -13,7 +14,6 @@ const MODEL = process.env.MODEL_NAME || 'gemma3n:e2b';
 let WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBHOOK_PLATFORM = process.env.WEBHOOK_PLATFORM || 'discord';
 const LANGUAGE = process.env.LANGUAGE || 'English';
-const FILTER = /(ERROR|CRIT|WARN)/i;
 const BATCH_INTERVAL_MS = 15000;
 // ✅ BEST PRACTICE: Define a character limit for the log data in the prompt.
 const MAX_PROMPT_LOG_CHARS = 8000;
@@ -73,16 +73,15 @@ app.post('/logs', (req, res) => {
     for (const entry of newEntries) {
         // 'entry' is the already-parsed log from Fluent Bit.
         // We just need to extract the fields we care about.
-        const message = entry.log || '';
-
-        if (FILTER.test(message)) {
-            logBuffer.push({
-                message: message,
-                container: entry.container_name || 'unknown',
-                time: entry.time || new Date().toISOString(),
-                stream: entry.stream || 'stdout'
-            });
-        }
+        // ✅ BEST PRACTICE: Trust the upstream filter (Fluent Bit).
+        // Removing the redundant filter here simplifies the code and makes the pipeline
+        // more efficient and easier to debug.
+        logBuffer.push({
+            message: entry.log || '',
+            container: entry.container_name || 'unknown',
+            time: entry.time || new Date().toISOString(),
+            stream: entry.stream || 'stdout'
+        });
     }
     res.status(200).send('OK');
 });
@@ -123,7 +122,10 @@ server.listen(PORT, () => {
 
 function diskReport() {
     try {
-        return execSync('df -h').toString();
+        // ✅ BEST PRACTICE: Make disk reporting environment-aware.
+        // Use /host if it exists (in Docker), otherwise use / (for native installs).
+        const dfPath = fs.existsSync('/host') ? '/host' : '/';
+        return execSync(`df -h ${dfPath}`).toString();
     } catch {
         return 'df command failed';
     }

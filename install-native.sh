@@ -157,31 +157,47 @@ setup_application() {
 configure_fluentbit() {
     echo -e "${YELLOW}⚙️ Configuring Fluent Bit...${NC}"
     
+    # ✅ FIX: Generate a functional fluent-bit.conf for the native install.
+    # This version correctly tails system logs, filters for errors, and forwards
+    # them to the local analyzer service, making the native install work as intended.
     cat > /etc/fluent-bit/fluent-bit.conf << 'EOF'
 [SERVICE]
     Flush        5
     Daemon       Off
     Log_Level    info
-    Parsers_File parsers.conf
 
 [INPUT]
+    Name              systemd
+    Tag               host.systemd.*
+    # You can add more units to monitor here, e.g., nginx.service
+    Systemd_Filter    _SYSTEMD_UNIT=robolog-analyzer.service
+    
+[INPUT]
     Name              tail
-    Path              /var/log/syslog,/var/log/messages,/var/log/nginx/*.log,/var/log/robolog/*.log
-    Tag               system.*
+    Path              /var/log/syslog,/var/log/auth.log,/var/log/kern.log
+    Tag               host.legacy.*
     Refresh_Interval  5
     Mem_Buf_Limit     64MB
     Skip_Long_Lines   On
 
-[INPUT]
-    Name              systemd
-    Tag               systemd.*
-    Systemd_Filter    _SYSTEMD_UNIT=nginx.service
-    Systemd_Filter    _SYSTEMD_UNIT=robolog.service
+[FILTER]
+    Name    grep
+    Match   host.*
+    Regex   log (?i)(ERROR|CRIT|WARN|FAIL|FATAL)
+    Alias   host.filtered
+
+[OUTPUT]
+    Name          http
+    Match         host.filtered
+    Host          127.0.0.1
+    Port          9880
+    URI           /logs
+    Format        json
 
 [OUTPUT]
     Name  file
     Match *
-    Path  /opt/robolog/logs
+    Path  /opt/robolog/logs/
     File  all.log
     Format plain
 EOF
