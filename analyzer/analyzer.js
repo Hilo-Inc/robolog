@@ -1,13 +1,17 @@
 import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
 import { execSync } from 'child_process';
 import os from 'os';
 import fetch from 'node-fetch';
 
 // --- Configuration ---
 const PORT = process.env.ANALYZER_PORT || 9880;
+const WEBSOCKET_PORT = 9881;
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://ollama:11434';
 const MODEL = process.env.MODEL_NAME || 'gemma3n:e2b';
-const WEBHOOK_URL = process.env.WEBHOOK_URL || process.env.DISCORD_WEBHOOK_URL;
+// ✅ Webhook URL is now managed dynamically, with an optional initial value.
+let WEBHOOK_URL = process.env.WEBHOOK_URL;
 const WEBHOOK_PLATFORM = process.env.WEBHOOK_PLATFORM || 'discord';
 const LANGUAGE = process.env.LANGUAGE || 'English';
 const FILTER = /(ERROR|CRIT|WARN)/i;
@@ -35,6 +39,8 @@ async function processLogBuffer() {
         // This prevents sending alerts for summaries that only contain spaces.
         if (summary && summary.trim()) {
             console.log("Summary is valid. Sending webhook...");
+            // ✅ Broadcast summary to the web UI via WebSocket
+            io.emit('new-summary', summary);
             await sendWebhook(`🤖 AI Log Analysis (${LANGUAGE}):\n${summary}`);
         } else {
             console.log("AI returned an empty or whitespace summary. Skipping webhook.");
@@ -47,6 +53,9 @@ async function processLogBuffer() {
 // --- Express Server Setup ---
 const app = express();
 app.use(express.json({ limit: '64mb' }));
+// ✅ Create an HTTP server to attach both Express and Socket.IO
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
 app.post('/logs', (req, res) => {
     // Fluent Bit can send a single object or an array of objects.
@@ -73,12 +82,27 @@ app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', bufferSize: logBuffer.length });
 });
 
-app.listen(PORT, () => {
+// ✅ New endpoint for the UI to set the webhook URL dynamically.
+app.post('/set-webhook', (req, res) => {
+    const { url } = req.body;
+    if (typeof url === 'string') {
+        WEBHOOK_URL = url;
+        console.log(`Webhook URL updated to: ${url}`);
+        res.status(200).send('Webhook URL updated.');
+    } else {
+        res.status(400).send('Invalid URL provided.');
+    }
+});
+
+server.listen(PORT, () => {
     console.log(`Log analyzer service listening on http://localhost:${PORT}`);
     // ✨ BEST PRACTICE: Add a check for the webhook URL on startup.
-    if (!WEBHOOK_URL) {
-        console.warn('⚠️ WARNING: WEBHOOK_URL is not set. Discord notifications will be disabled.');
-    }
+    if (!WEBHOOK_URL) console.warn('⚠️ WARNING: WEBHOOK_URL is not set. Discord/Slack notifications will be disabled until set via the UI.');
+    
+    // Start the WebSocket server on its dedicated port
+    io.listen(WEBSOCKET_PORT);
+    console.log(`WebSocket server listening on port ${WEBSOCKET_PORT}`);
+
     setInterval(processLogBuffer, BATCH_INTERVAL_MS);
     console.log(`Will process log batches every ${BATCH_INTERVAL_MS / 1000} seconds.`);
 });

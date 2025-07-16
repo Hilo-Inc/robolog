@@ -1,12 +1,17 @@
-# === Stage 1: Build the Node.js application ===
-# Use a small, efficient image just for building the app
+# === Stage 1: Build the Next.js application ===
+# This stage installs dependencies and builds the Next.js production output.
 FROM node:20-alpine AS builder
 WORKDIR /usr/src/app
+
 COPY package*.json ./
-# Install dependencies
-RUN npm install --omit=dev
-# Copy the rest of the application source code
+
+# ✅ BEST PRACTICE: Use `npm ci` for faster, more reliable, and reproducible builds.
+# This uses the package-lock.json to install exact dependency versions.
+RUN npm ci
+
+# Copy the rest of the application source code and build the app
 COPY . .
+RUN npm run build
 
 
 # === Stage 2: Create the final production image ===
@@ -18,28 +23,41 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # ---- System & dependencies ----
 # Install only the necessary runtime dependencies
+# ✅ BEST PRACTICE: Install a specific Node.js version to match the build environment,
+# avoiding potential mismatches from the default OS repositories.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       curl \
       nginx \
-      nodejs \
-      npm \
-    && npm install -g pm2 \
+      ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g pm2 --no-optional \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ---- Nginx ----
 COPY nginx.conf /etc/nginx/sites-available/default
+# ✅ Add this line to copy your new certificates into the image
+COPY certs/ /etc/nginx/certs/
+# You can remove this line if you're not using a `sites-enabled` directory structure
 RUN ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
 
 # ---- Application code ----
 WORKDIR /usr/src/app
-# ✅ BEST PRACTICE: Copy only the built application and its node_modules
-# from the 'builder' stage. This keeps the final image clean.
-COPY --from=builder /usr/src/app .
-
+# ✅ BEST PRACTICE: Copy only the necessary production artifacts from the builder stage.
+COPY --from=builder /usr/src/app/package*.json ./
+COPY --from=builder /usr/src/app/.next ./.next
+COPY --from=builder /usr/src/app/public ./public
+COPY --from=builder /usr/src/app/node_modules ./node_modules
+COPY ecosystem.config.cjs .
 # ---- PM2 ----
 ENV PM2_LOG_DATE_FORMAT="YYYY-MM-DD HH:mm:ss"
 
+# ---- Entrypoint ----
+ # Copy the entrypoint script and make it executable within the container.
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
 # ---- Expose & Entrypoint ----
-EXPOSE 80
-CMD service nginx start && pm2-runtime start ecosystem.config.cjs
+EXPOSE 80 443
+ENTRYPOINT ["entrypoint.sh"]
