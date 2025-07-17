@@ -32,7 +32,6 @@ RUN apt-get update && \
       ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
-    && npm install -g pm2 --no-optional \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ---- Nginx ----
@@ -49,9 +48,6 @@ COPY --from=builder /usr/src/app/package*.json ./
 COPY --from=builder /usr/src/app/.next ./.next
 COPY --from=builder /usr/src/app/public ./public
 COPY --from=builder /usr/src/app/node_modules ./node_modules
-COPY ecosystem.config.cjs .
-# ---- PM2 ----
-ENV PM2_LOG_DATE_FORMAT="YYYY-MM-DD HH:mm:ss"
 
 # ---- Entrypoint ----
  # Copy the entrypoint script and make it executable within the container.

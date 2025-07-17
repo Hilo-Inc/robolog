@@ -6,7 +6,8 @@ set -e
 echo "Starting nginx..."
 service nginx start
 
-# Start PM2 in the foreground. `exec` makes PM2 the main process,
-# which correctly handles signals from Docker to ensure a graceful shutdown.
-echo "Starting PM2..."
-pm2 start ecosystem.config.cjs && pm2 logs
+echo "Starting Next.js application..."
+# ✅ BEST PRACTICE: Use `exec` to make the Node.js process the main container process.
+# This ensures that signals are handled correctly and logs are sent to stdout/stderr,
+# allowing Fluent Bit to collect them without needing a process manager like PM2.
+exec npm start

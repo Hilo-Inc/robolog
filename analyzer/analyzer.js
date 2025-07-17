@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import { createHash } from 'crypto';
 import { Server } from 'socket.io';
 import fs from 'fs';
 import { execSync } from 'child_process';
@@ -17,23 +18,53 @@ const LANGUAGE = process.env.LANGUAGE || 'English';
 const BATCH_INTERVAL_MS = 15000;
 // ✅ BEST PRACTICE: Define a character limit for the log data in the prompt.
 const MAX_PROMPT_LOG_CHARS = 8000;
+// ✨ NEW: Define a maximum number of logs to process in a single batch.
+// This prevents overwhelming the AI model and creates smaller, faster analysis jobs.
+const BATCH_SIZE = 5;
 
-// --- State for Batching ---
+// --- State Management ---
 // ✅ The buffer now stores structured, parsed log objects.
 let logBuffer = [];
 // ✅ Add a new state variable to hold the last generated prompt for debugging.
 let lastPrompt = 'No prompt has been generated yet.';
 
+// ✅ ENHANCEMENT: Add state and configuration for log deduplication.
+// This prevents "flapping" errors from repeatedly triggering analysis.
+const deduplicationCache = new Map();
+const DEDUPLICATION_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Creates a consistent hash for a log message, ignoring volatile parts like timestamps and numbers.
+ * This allows us to group similar, recurring errors.
+ * @param {string} message The raw log message.
+ * @returns {string} A MD5 hash representing the log's signature.
+ */
+function generateLogHash(message) {
+    const normalized = message
+        .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z/ig, '[TIMESTAMP]') // ISO8601
+        .replace(/\b[0-9a-f]{8}\b-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-\b[0-9a-f]{12}\b/ig, '[GUID]') // GUIDs
+        .replace(/\d+/g, '[NUM]'); // All other numbers
+
+    return createHash('md5').update(normalized).digest('hex');
+}
+
 // --- Core Logic ---
 async function processLogBuffer() {
-    if (logBuffer.length === 0) {
-        return;
-    }
+    // ✅ BEST PRACTICE: First, prune old entries from the deduplication cache.
+    const now = Date.now();
+    deduplicationCache.forEach((entry, hash) => {
+        if (now - entry.lastSeen > DEDUPLICATION_WINDOW_MS) {
+            deduplicationCache.delete(hash);
+        }
+    });
 
-    const logsToProcess = [...logBuffer];
-    logBuffer = [];
+    if (logBuffer.length === 0) return;
 
-    console.log(`Processing batch of ${logsToProcess.length} log entries.`);
+    // ✅ FIX: Process a smaller, fixed-size batch instead of the whole buffer.
+    // This prevents long-running Ollama requests from blocking subsequent logs.
+    const logsToProcess = logBuffer.splice(0, BATCH_SIZE);
+
+    console.log(`Processing batch of ${logsToProcess.length} log entries. ${logBuffer.length} logs remaining in buffer.`);
 
     try {
         const summary = await summarize(logsToProcess);
@@ -42,9 +73,27 @@ async function processLogBuffer() {
         // This prevents sending alerts for summaries that only contain spaces.
         if (summary && summary.trim()) {
             console.log("Summary is valid. Sending webhook...");
-            // ✅ Broadcast summary to the web UI via WebSocket
-            io.emit('new-summary', summary);
-            await sendWebhook(`🤖 AI Log Analysis (${LANGUAGE}):\n${summary}`);
+
+            // ✅ As requested: Prepend the raw logs to the webhook and UI message.
+            // This provides the raw data first for evidence, followed by the AI's interpretation.
+            let fullMessage = "📄 **Raw Logs in this Batch:**\n```\n";
+            for (const log of logsToProcess) {
+                // ✅ ENHANCEMENT: Add repetition count for flapping errors.
+                const hash = generateLogHash(log.message);
+                const count = deduplicationCache.get(hash)?.count || 1;
+                const repeatInfo = count > 1 ? ` (Repeated x${count} times)` : '';
+
+                // Format for readability: [TIME] [CONTAINER] MESSAGE
+                const time = new Date(log.time).toLocaleTimeString('en-US', { hour12: false });
+                // Clean up the log message to avoid breaking markdown code blocks
+                const cleanMessage = String(log.message).replace(/```/g, '` ` `');
+                fullMessage += `[${time}] [${log.container}] ${cleanMessage.trim()}${repeatInfo}\n`;
+            }
+            fullMessage += "```\n\n";
+            fullMessage += `🤖 **AI Log Analysis (${LANGUAGE}):**\n${summary}`;
+
+            io.emit('new-summary', fullMessage); // Broadcast full message to UI
+            await sendWebhook(fullMessage);      // Send full message to webhook
         } else {
             console.log("AI returned an empty or whitespace summary. Skipping webhook.");
         }
@@ -70,18 +119,36 @@ app.post('/logs', (req, res) => {
     // Fluent Bit can send a single object or an array of objects.
     const newEntries = Array.isArray(req.body) ? req.body : [req.body];
 
+    const acceptedSeverities = new Set(['CRITICAL', 'ERROR', 'WARNING']);
+
     for (const entry of newEntries) {
-        // 'entry' is the already-parsed log from Fluent Bit.
-        // We just need to extract the fields we care about.
-        // ✅ BEST PRACTICE: Trust the upstream filter (Fluent Bit).
-        // Removing the redundant filter here simplifies the code and makes the pipeline
-        // more efficient and easier to debug.
-        logBuffer.push({
-            message: entry.log || '',
-            container: entry.container_name || 'unknown',
-            time: entry.time || new Date().toISOString(),
-            stream: entry.stream || 'stdout'
-        });
+        const message = entry.log || '';
+        const severity = categorizeLogLevel(message);
+
+        // ✅ BEST PRACTICE: Add a secondary "defense-in-depth" filter.
+        // Even though Fluent Bit should only send filtered logs, this ensures
+        // we only process logs that are genuinely important, preventing the
+        // AI model from being overwhelmed.
+        if (acceptedSeverities.has(severity)) {
+            const hash = generateLogHash(message);
+
+            if (deduplicationCache.has(hash)) {
+                // It's a repeat error. Just increment the count and update the timestamp.
+                const cacheEntry = deduplicationCache.get(hash);
+                cacheEntry.count++;
+                cacheEntry.lastSeen = Date.now();
+            } else {
+                // It's a new, unique error. Add it to the cache and the processing buffer.
+                const newLog = {
+                    message: message,
+                    container: entry.container_name || 'unknown',
+                    time: entry.time || new Date().toISOString(),
+                    stream: entry.stream || 'stdout'
+                };
+                deduplicationCache.set(hash, { count: 1, lastSeen: Date.now(), log: newLog });
+                logBuffer.push(newLog);
+            }
+        }
     }
     res.status(200).send('OK');
 });
@@ -113,10 +180,20 @@ server.listen(PORT, () => {
     // ✨ BEST PRACTICE: Add a check for the webhook URL on startup.
     if (!WEBHOOK_URL) console.warn('⚠️ WARNING: WEBHOOK_URL is not set. Discord/Slack notifications will be disabled until set via the UI.');
 
-    // The WebSocket server is now running on the same port as the Express app.
-    setInterval(processLogBuffer, BATCH_INTERVAL_MS);
-    console.log(`Will process log batches every ${BATCH_INTERVAL_MS / 1000} seconds.`);
+    // ✅ FIX: Use a self-scheduling timeout instead of setInterval.
+    // This robustly queues processing, ensuring that one analysis completes
+    // before the next one is scheduled, preventing resource contention on Ollama.
+    const runProcessingLoop = () => {
+        processLogBuffer()
+            .catch(err => console.error("Error in processing loop:", err))
+            .finally(() => {
+                setTimeout(runProcessingLoop, BATCH_INTERVAL_MS);
+            });
+    };
+    runProcessingLoop(); // Start the loop
+    console.log(`Will check for new log batches to process every ${BATCH_INTERVAL_MS / 1000} seconds.`);
 });
+
 
 // --- Helper Functions ---
 
@@ -185,16 +262,27 @@ async function summarize(parsedLogs) {
         if (logsBySeverity[severity] && logsBySeverity[severity].length > 0) {
             structuredLogs += `\n${severity} (${logsBySeverity[severity].length} entries):\n`;
             logsBySeverity[severity].forEach(log => {
-                structuredLogs += `  [${log.container}] ${log.message.substring(0, 120)}...\n`;
+                // ✅ ENHANCEMENT: Add repetition count to the prompt for better AI context.
+                const hash = generateLogHash(log.message);
+                const count = deduplicationCache.get(hash)?.count || 1;
+                const repeatInfo = count > 1 ? `(Repeated x${count}) ` : '';
+
+                structuredLogs += `  ${repeatInfo}[${log.container}] ${log.message.substring(0, 120)}...\n`;
             });
         }
     });
 
     structuredLogs += "\n=== LOG ANALYSIS BY APPLICATION ===\n";
     Object.keys(logsByContainer).forEach(container => {
-        structuredLogs += `\n${container.toUpperCase()} (${logsByContainer[container].length} entries):\n`;
-        logsByContainer[container].forEach(log => {
-            structuredLogs += `  [${log.severity}] ${log.message.substring(0, 120)}...\n`;
+        const logs = logsByContainer[container];
+        structuredLogs += `\n${container.toUpperCase()} (${logs.length} entries):\n`;
+        logs.forEach(log => {
+            // ✅ ENHANCEMENT: Add repetition count to the prompt for better AI context.
+            const hash = generateLogHash(log.message);
+            const count = deduplicationCache.get(hash)?.count || 1;
+            const repeatInfo = count > 1 ? `(Repeated x${count}) ` : '';
+
+            structuredLogs += `  ${repeatInfo}[${log.severity}] ${log.message.substring(0, 120)}...\n`;
         });
     });
     // --- End of restored logic ---
@@ -207,7 +295,7 @@ async function summarize(parsedLogs) {
 
     const prompt = `You are a DevOps assistant. Analyze these structured logs and provide a clear, actionable summary.
 
-INSTRUCTIONS:
+RUN THESE INSTRUCTIONS FOR EACH ISSUE:
 1. Start with "🚨 CRITICAL ISSUES" if any critical/error logs exist.
 2. Then "⚠️ WARNINGS" for warning-level issues.
 3. Then "📊 SUMMARY BY APPLICATION".
@@ -226,6 +314,9 @@ Free memory: ${Math.round(os.freemem() / 1024 / 1024)}MB
 Provide a structured analysis following the format above in ${LANGUAGE}:`;
 
     lastPrompt = prompt; // ✅ Store the generated prompt for debugging.
+
+    // ✅ As requested: Log the prompt being sent to Ollama for easier debugging.
+    console.log("\n--- Sending Prompt to Ollama ---\n" + prompt + "\n---------------------------------\n");
 
     console.log("Attempting to call Ollama for summary...");
 
