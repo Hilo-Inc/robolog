@@ -361,9 +361,11 @@ async function summarize(parsedLogs) {
 }
 
 async function summarizeWithPrompt(prompt) {
-    lastPrompt = prompt; // ✅ Store the generated prompt for debugging.
-    console.log("\n--- Sending Prompt to Ollama ---\n" + prompt + "\n---------------------------------\n");
+    lastPrompt = prompt;
 
+    // ✅ FIX: Removed verbose logging of the full prompt. This was being captured
+    // by Fluent Bit and fed back into the analyzer, causing a cyclical feedback loop.
+    // The `/last-prompt` endpoint can be used for debugging instead.
     console.log("Attempting to call Ollama for summary...");
 
     try {
