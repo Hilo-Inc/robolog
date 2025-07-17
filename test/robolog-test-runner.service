@@ -1,0 +1,13 @@
+[Unit]
+Description=Robolog Test Runner Service
+# Run after the system is basically up and has network.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# We use /bin/bash to ensure our script runs with the correct shell.
+ExecStart=/bin/bash /usr/local/bin/run-test.sh
+
+[Install]
+WantedBy=default.target

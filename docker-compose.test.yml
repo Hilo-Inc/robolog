@@ -1,0 +1,14 @@
+services:
+  test-native-install:
+    build:
+      context: .
+      dockerfile: test/Dockerfile.native
+    container_name: robolog-native-install-test
+    # Privileged mode is required to allow the container to manage systemd services.
+    privileged: true
+    # We mount the host's cgroup to allow systemd to function correctly.
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+# No entrypoint or command override is needed. The container will run its
+# default CMD ("/sbin/init"), which will in turn execute our test script
+# via /etc/rc.local. The test script will shut down the container upon completion.
