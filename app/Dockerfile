@@ -1,6 +1,7 @@
 # === Stage 1: Build the Next.js application ===
 # This stage installs dependencies and builds the Next.js production output.
-FROM node:20-alpine AS builder
+# ✅ BEST PRACTICE: Use a glibc-based build image (like -slim) to match the glibc-based Ubuntu runtime.
+FROM node:20-slim AS builder
 WORKDIR /usr/src/app
 
 COPY package*.json ./

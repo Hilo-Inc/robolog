@@ -32,10 +32,6 @@ services:
     ports:
       - "80:80"   # For the HTTP -> HTTPS redirect
       - "443:443" # For the main HTTPS site
-    environment:
-      # ✅ BEST PRACTICE: Make frontend configuration portable via environment variables.
-      # The WebSocket now connects to the analyzer's primary port.
-      - NEXT_PUBLIC_ANALYZER_WS_URL=ws://localhost:9880
     networks: # ✨ 2. Add the service to your custom network
       - robolog-net
 

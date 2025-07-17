@@ -25,8 +25,10 @@ const BATCH_SIZE = 5;
 // --- State Management ---
 // ✅ The buffer now stores structured, parsed log objects.
 let logBuffer = [];
-// ✅ Add a new state variable to hold the last generated prompt for debugging.
+// ✅ Add new state variables for debugging and report history.
 let lastPrompt = 'No prompt has been generated yet.';
+let reportHistory = []; // ✨ NEW: Store a history of generated reports.
+const MAX_REPORTS = 50; // ✨ NEW: Limit the number of stored reports.
 
 // ✅ ENHANCEMENT: Add state and configuration for log deduplication.
 // This prevents "flapping" errors from repeatedly triggering analysis.
@@ -89,11 +91,17 @@ async function processLogBuffer() {
                 const cleanMessage = String(log.message).replace(/```/g, '` ` `');
                 fullMessage += `[${time}] [${log.container}] ${cleanMessage.trim()}${repeatInfo}\n`;
             }
-            fullMessage += "```\n\n";
-            fullMessage += `🤖 **AI Log Analysis (${LANGUAGE}):**\n${summary}`;
+            fullMessage += "```\n\n"; // End of raw log block
+            fullMessage += `🤖 **AI Log Analysis (${LANGUAGE})**:\n${summary}`; // ✅ FIX: Colon is now outside the markdown bold for correct parsing.
 
             io.emit('new-summary', fullMessage); // Broadcast full message to UI
             await sendWebhook(fullMessage);      // Send full message to webhook
+
+            // ✨ NEW: Add the new report to the history.
+            reportHistory.unshift(fullMessage);
+            if (reportHistory.length > MAX_REPORTS) {
+                reportHistory.pop(); // Remove the oldest report to cap memory usage.
+            }
         } else {
             console.log("AI returned an empty or whitespace summary. Skipping webhook.");
         }
@@ -175,6 +183,41 @@ app.get('/last-prompt', (req, res) => {
     res.status(200).send(lastPrompt);
 });
 
+// ✨ NEW: Endpoint to get the history of reports for the dashboard.
+app.get('/reports', (req, res) => {
+    res.status(200).json(reportHistory);
+});
+
+// ✨ NEW: Endpoint to ask for more details on a report.
+app.post('/ask-details', async (req, res) => {
+    const { report, question } = req.body;
+    if (!report || !question) {
+        return res.status(400).send('Missing "report" or "question" in request body.');
+    }
+
+    const prompt = `You are a DevOps assistant. The user has a follow-up question about a previous log analysis you performed.
+Provide a clear, helpful, and concise answer to their question based on the original analysis.
+
+Respond in ${LANGUAGE}.
+
+---
+ORIGINAL LOG ANALYSIS:
+${report}
+---
+USER'S QUESTION:
+${question}
+---
+
+Your detailed explanation:`;
+
+    // This uses the main summarize function but with a different prompt.
+    // A dedicated function could also be made, but this is efficient.
+    const details = await summarizeWithPrompt(prompt);
+    res.status(200).json({ details });
+});
+
+
+
 server.listen(PORT, () => {
     console.log(`Log analyzer service listening on http://localhost:${PORT}`);
     // ✨ BEST PRACTICE: Add a check for the webhook URL on startup.
@@ -245,15 +288,7 @@ function structureLogs(parsedLogs) {
     return { logsByContainer, logsBySeverity };
 }
 
-// ✅ Accepts an array of parsed log objects.
-// ... (other functions are correct)
-
-// ✅ Accepts an array of parsed log objects.
-async function summarize(parsedLogs) {
-    if (!parsedLogs || parsedLogs.length === 0) {
-        return null;
-    }
-
+async function createSummaryPrompt(parsedLogs) {
     const { logsByContainer, logsBySeverity } = structureLogs(parsedLogs);
 
     // ✅ RESTORED: This logic was missing. It builds the log data string for the prompt.
@@ -313,9 +348,20 @@ Free memory: ${Math.round(os.freemem() / 1024 / 1024)}MB
 
 Provide a structured analysis following the format above in ${LANGUAGE}:`;
 
-    lastPrompt = prompt; // ✅ Store the generated prompt for debugging.
+    return prompt;
+}
 
-    // ✅ As requested: Log the prompt being sent to Ollama for easier debugging.
+// ✅ Accepts an array of parsed log objects.
+async function summarize(parsedLogs) {
+    if (!parsedLogs || parsedLogs.length === 0) {
+        return null;
+    }
+    const prompt = await createSummaryPrompt(parsedLogs);
+    return summarizeWithPrompt(prompt);
+}
+
+async function summarizeWithPrompt(prompt) {
+    lastPrompt = prompt; // ✅ Store the generated prompt for debugging.
     console.log("\n--- Sending Prompt to Ollama ---\n" + prompt + "\n---------------------------------\n");
 
     console.log("Attempting to call Ollama for summary...");
