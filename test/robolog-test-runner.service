@@ -1,8 +1,9 @@
 [Unit]
 Description=Robolog Test Runner Service
-# Run after the system is basically up and has network.
-After=network-online.target
-Wants=network-online.target
+# ✅ FIX: Run after the basic multi-user target is reached.
+# The 'network-online.target' can be unreliable in container startup
+# and was likely causing systemd to fail.
+After=multi-user.target
 
 [Service]
 Type=oneshot
@@ -10,4 +11,4 @@ Type=oneshot
 ExecStart=/bin/bash /usr/local/bin/run-test.sh
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
