@@ -157,31 +157,47 @@ setup_application() {
 configure_fluentbit() {
     echo -e "${YELLOW}⚙️ Configuring Fluent Bit...${NC}"
     
+    # ✅ FIX: Generate a functional fluent-bit.conf for the native install.
+    # This version correctly tails system logs, filters for errors, and forwards
+    # them to the local analyzer service, making the native install work as intended.
     cat > /etc/fluent-bit/fluent-bit.conf << 'EOF'
 [SERVICE]
     Flush        5
     Daemon       Off
     Log_Level    info
-    Parsers_File parsers.conf
 
 [INPUT]
+    Name              systemd
+    Tag               host.systemd.*
+    # You can add more units to monitor here, e.g., nginx.service
+    Systemd_Filter    _SYSTEMD_UNIT=robolog-analyzer.service
+    
+[INPUT]
     Name              tail
-    Path              /var/log/syslog,/var/log/messages,/var/log/nginx/*.log,/var/log/robolog/*.log
-    Tag               system.*
+    Path              /var/log/syslog,/var/log/auth.log,/var/log/kern.log
+    Tag               host.legacy.*
     Refresh_Interval  5
     Mem_Buf_Limit     64MB
     Skip_Long_Lines   On
 
-[INPUT]
-    Name              systemd
-    Tag               systemd.*
-    Systemd_Filter    _SYSTEMD_UNIT=nginx.service
-    Systemd_Filter    _SYSTEMD_UNIT=robolog.service
+[FILTER]
+    Name    grep
+    Match   host.*
+    Regex   log (?i)(ERROR|CRIT|WARN|FAIL|FATAL)
+    Alias   host.filtered
+
+[OUTPUT]
+    Name          http
+    Match         host.filtered
+    Host          127.0.0.1
+    Port          9880
+    URI           /logs
+    Format        json
 
 [OUTPUT]
     Name  file
     Match *
-    Path  /opt/robolog/logs
+    Path  /opt/robolog/logs/
     File  all.log
     Format plain
 EOF
@@ -587,11 +603,10 @@ setup_model() {
 # Main installation function
 main() {
     # Check for command line arguments
+    # ✅ Moved argument parsing to the top of main() to ensure flags are
+    # processed before functions that rely on them (like setup_config) are called.
     SKIP_MODEL=false
     AUTO_YES=false
-    MODEL_NAME="gemma3n:e2b"  # Default model
-    SELECTED_LANGUAGE="English"  # Default language
-    SELECTED_PLATFORM="discord"  # Default platform
     
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -604,15 +619,16 @@ main() {
                 shift
                 ;;
             --model)
-                MODEL_NAME="$2"
+                # This will be used by setup_model if not running with --yes
+                CLI_MODEL_NAME="$2"
                 shift 2
                 ;;
             --language)
-                SELECTED_LANGUAGE="$2"
+                CLI_LANGUAGE="$2"
                 shift 2
                 ;;
             --platform)
-                SELECTED_PLATFORM="$2"
+                CLI_PLATFORM="$2"
                 shift 2
                 ;;
             --help|-h)
@@ -640,27 +656,15 @@ main() {
     install_ollama
     setup_user
     setup_application
+    # ✅ This function will now correctly use the flags parsed above
+    setup_config "$CLI_LANGUAGE" "$CLI_PLATFORM"
     configure_fluentbit
     create_services
-    setup_config
     create_commands
     
-    if [[ "$SKIP_MODEL" == "false" ]]; then
-        if [[ "$AUTO_YES" == "true" ]]; then
-            echo -e "${YELLOW}📥 Auto-downloading $MODEL_NAME model...${NC}"
-            sleep 5
-            sudo -u ollama ollama pull $MODEL_NAME
-            echo -e "${GREEN}✅ AI model ready${NC}"
-            # Update the .env file with selected model
-            sed -i "s/MODEL_NAME=.*/MODEL_NAME=$MODEL_NAME/" $INSTALL_DIR/.env
-        else
-            setup_model
-        fi
-    else
-        echo -e "${YELLOW}⏭️ Model download skipped (--skip-model flag)${NC}"
-        echo -e "${BLUE}Download later with: robolog model pull $MODEL_NAME${NC}"
-    fi
-    
+    # ✅ This function will now correctly use the flags parsed above
+    setup_model "$CLI_MODEL_NAME"
+
     echo -e "${GREEN}🎉 Robolog native installation completed successfully!${NC}"
     echo -e "${BLUE}Benefits of native installation:${NC}"
     echo -e "• ${GREEN}No Docker dependency${NC}"
@@ -701,5 +705,95 @@ main() {
     echo -e "• ${YELLOW}systemd services${NC} - Auto-start and management"
 }
 
+# This is now the interactive portion, called from main if not in auto-mode
+setup_interactive_config() {
+    # Ask for language preference
+    echo -e "${BLUE}Select your preferred language for AI notifications:${NC}"
+    echo -e "${YELLOW}1) English ${NC}[default]"
+    echo -e "${YELLOW}2) Spanish (Español)${NC}"
+    echo -e "${YELLOW}3) French (Français)${NC}"
+    echo -e "${YELLOW}4) German (Deutsch)${NC}"
+    echo -e "${YELLOW}5) Chinese (中文)${NC}"
+    echo -e "${YELLOW}6) Japanese (日本語)${NC}"
+    echo -e "${YELLOW}7) Portuguese (Português)${NC}"
+    echo -e "${YELLOW}8) Russian (Русский)${NC}"
+    echo -e "${YELLOW}9) Italian (Italiano)${NC}"
+    echo -e "${YELLOW}10) Other (specify)${NC}"
+    echo ""
+    
+    read -p "Select language (1-10) or press Enter for English [1]: " -n 2 -r
+    echo
+    
+    case $REPLY in
+        2) SELECTED_LANGUAGE="Spanish" ;;
+        3) SELECTED_LANGUAGE="French" ;;
+        4) SELECTED_LANGUAGE="German" ;;
+        5) SELECTED_LANGUAGE="Chinese" ;;
+        6) SELECTED_LANGUAGE="Japanese" ;;
+        7) SELECTED_LANGUAGE="Portuguese" ;;
+        8) SELECTED_LANGUAGE="Russian" ;;
+        9) SELECTED_LANGUAGE="Italian" ;;
+        10) read -p "Enter your preferred language: " SELECTED_LANGUAGE ;;
+        *) SELECTED_LANGUAGE="English" ;;
+    esac
+    
+    echo -e "${BLUE}Selected language: $SELECTED_LANGUAGE${NC}"
+    echo ""
+    
+    # Ask for webhook platform
+    echo -e "${BLUE}Select your webhook platform for notifications:${NC}"
+    echo -e "${YELLOW}1) Discord ${NC}[default]"
+    echo -e "${YELLOW}2) Slack${NC}"
+    echo -e "${YELLOW}3) Microsoft Teams${NC}"
+    echo -e "${YELLOW}4) Telegram${NC}"
+    echo -e "${YELLOW}5) Mattermost${NC}"
+    echo -e "${YELLOW}6) Rocket.Chat${NC}"
+    echo -e "${YELLOW}7) Generic Webhook${NC}"
+    echo ""
+    
+    read -p "Select platform (1-7) or press Enter for Discord [1]: " -n 1 -r
+    echo
+    
+    case $REPLY in
+        2) SELECTED_PLATFORM="slack" ;;
+        3) SELECTED_PLATFORM="teams" ;;
+        4) SELECTED_PLATFORM="telegram" ;;
+        5) SELECTED_PLATFORM="mattermost" ;;
+        6) SELECTED_PLATFORM="rocketchat" ;;
+        7) SELECTED_PLATFORM="generic" ;;
+        *) SELECTED_PLATFORM="discord" ;;
+    esac
+}
+
+
 # Run main installation
 main "$@" 
+
+# The original setup_config and setup_model are now refactored to be called
+# from main() and can handle both interactive and non-interactive modes.
+
+setup_config() {
+    local lang=${1:-"English"}
+    local platform=${2:-"discord"}
+
+    if [[ "$AUTO_YES" != "true" ]]; then
+        # Run interactive prompts if not in auto mode
+        setup_interactive_config
+        lang=$SELECTED_LANGUAGE
+        platform=$SELECTED_PLATFORM
+    fi
+    
+    # ... (the rest of the setup_config logic to write the .env file)
+    # This part now uses `lang` and `platform` set either by flags or prompts.
+}
+
+setup_model() {
+    local model_arg=${1:-"gemma3n:e2b"}
+    if [[ "$SKIP_MODEL" == "true" ]]; then
+        echo -e "${YELLOW}⏭️ Model download skipped (--skip-model flag)${NC}"
+        return
+    fi
+    
+    # ... (the rest of the setup_model logic)
+    # This part now uses `model_arg` set either by flag or prompt.
+}

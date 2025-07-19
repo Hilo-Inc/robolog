@@ -1,0 +1,24 @@
+# Use a base image that includes systemd to test service creation and management.
+FROM jrei/systemd-ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ✅ FIX: Install `curl`, a prerequisite for the installation script.
+# The base image is minimal and does not include `curl`, which the script needs
+# to download the Node.js setup script from NodeSource.
+# We also install `coreutils` and `sudo` for general utilities.
+RUN apt-get update && apt-get install -y curl coreutils sudo
+
+# Copy the installation script into the container
+COPY ./install-native.sh /tmp/install-native.sh
+COPY ./test/run-test.sh /usr/local/bin/run-test.sh
+COPY ./test/robolog-test-runner.service /etc/systemd/system/robolog-test-runner.service
+
+# Make the script executable
+RUN chmod +x /tmp/install-native.sh
+RUN chmod +x /usr/local/bin/run-test.sh
+
+# ✅ BEST PRACTICE: Use a dedicated systemd service to run the test script.
+# This is more reliable than using rc.local and provides better control.
+RUN systemctl enable robolog-test-runner.service

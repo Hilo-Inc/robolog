@@ -118,61 +118,92 @@ download_files() {
     
     # Ensure docker-compose.yml exists (fallback)
     if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
+        # ✅ BEST PRACTICE: The fallback docker-compose.yml should match the main repository's structure
+        # and use environment variables from the .env file for configuration.
         cat > $INSTALL_DIR/docker-compose.yml << 'EOF'
+networks:
+  robolog-net:
+    driver: bridge
+
 volumes:
   logs:           # central log files collected by Fluent Bit
   ollama:         # model cache for Ollama
 
 services:
+  log-cleaner:
+    image: busybox
+    container_name: log-cleaner
+    volumes:
+      - logs:/logs
+    command: sh -c "echo 'Clearing persistent logs...' && rm -f /logs/all.log /logs/fluent-bit.db"
+
   # 👉 Main application with Nginx, Node, PM2
   app:
     build: ./app
     container_name: app
     restart: unless-stopped
     depends_on:
-      - fluent-bit
-    volumes:
-      - logs:/var/log
+      analyzer:
+        condition: service_healthy
     ports:
-      - "80:80"
+      - "80:80"   # For the HTTP -> HTTPS redirect
+      - "443:443" # For the main HTTPS site
+    environment:
+      - NEXT_PUBLIC_ANALYZER_WS_URL=ws://localhost:9880
+    networks:
+      - robolog-net
 
   # 👉 Ollama serving Gemma 3n (e2b)
   ollama:
     image: ollama/ollama
     container_name: ollama
     restart: unless-stopped
+    deploy:
+      resources: { limits: { cpus: '4.0', memory: '8G' } }
     volumes:
       - ollama:/root/.ollama
     command: ["serve"]   # entrypoint is already `ollama`
     ports:
       - "11434:11434"
+    networks:
+      - robolog-net
 
   # 👉 Fluent Bit – centralise all container logs into /logs/all.log
   fluent-bit:
     image: fluent/fluent-bit:3.0
     container_name: fluent-bit
+    depends_on:
+      log-cleaner: { condition: service_completed_successfully }
     volumes:
       - logs:/logs
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     ports:
       - "24224:24224"        # forwarder input
     restart: unless-stopped
+    networks:
+      - robolog-net
 
   # 👉 Log Analyzer – Node script that calls Gemma & posts to Discord
   analyzer:
     build: ./analyzer
     container_name: analyzer
     depends_on:
-      - ollama
-      - fluent-bit
+      log-cleaner: { condition: service_completed_successfully }
+      ollama: { condition: service_healthy }
     volumes:
+      - /:/host:ro
       - logs:/logs
     restart: unless-stopped
+    ports:
+      - "9880:9880"
     environment:
       - OLLAMA_URL=http://ollama:11434
-      - MODEL_NAME=gemma3n:e2b
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - MODEL_NAME=${MODEL_NAME:-gemma3n:e2b}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+    networks:
+      - robolog-net
 EOF
     fi
     
@@ -214,15 +245,15 @@ setup_config() {
     
     # Create .env file
     cat > $INSTALL_DIR/.env << 'EOF'
-# Discord Webhook URL for notifications
-# Get this from your Discord server settings > Integrations > Webhooks
-DISCORD_WEBHOOK_URL=
+# The webhook URL for your notification platform (e.g., Discord, Slack).
+WEBHOOK_URL=
 
-# Ollama model (default: gemma3n:e2b)
+# The model to use for analysis.
+# Recommended: gemma3n:e2b (default), llama3.2:1b (fastest)
 MODEL_NAME=gemma3n:e2b
 
-# Analyzer polling interval (milliseconds)
-POLL_MS=60000
+# The language for the AI summary.
+LANGUAGE=English
 EOF
     
     chown $USER:$USER $INSTALL_DIR/.env
@@ -260,8 +291,9 @@ case "$1" in
         cd $INSTALL_DIR && docker-compose logs -f ${2:-""}
         ;;
     test-errors)
-        echo "🧪 Generating test errors..."
-        curl -s http://localhost/generate-realistic-errors | jq .
+        echo "🧪 Generating test errors via the app's API..."
+        # Use -k to ignore self-signed cert error, and -X POST. Pipe to jq if available.
+        curl -sk -X POST https://localhost/api/generate-realistic-errors | (command -v jq &> /dev/null && jq . || cat)
         ;;
     config)
         echo "📝 Opening configuration file..."
