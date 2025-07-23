@@ -128,64 +128,90 @@ setup_user() {
 }
 
 # Download and setup application files
+# Download and setup application files
 setup_application() {
     echo -e "${YELLOW}📥 Setting up Robolog application...${NC}"
-    
-    # Download from GitHub
-    cd /tmp
-    curl -fsSL https://github.com/Hilo-Inc/robolog/archive/refs/heads/main.tar.gz | tar -xz
-    
-    # Copy analyzer files
-    cp robolog-main/analyzer/analyzer.js $INSTALL_DIR/
-    cp robolog-main/analyzer/package.json $INSTALL_DIR/
-    
+
+    local GITHUB_URL="https://github.com/Hilo-Inc/robolog/archive/refs/heads/main.tar.gz"
+    local TMP_DIR="/tmp"
+    local TARBALL="$TMP_DIR/robolog-main.tar.gz"
+    local EXTRACT_DIR="$TMP_DIR/robolog-main"
+
+    # Download to a file first for better error handling and debugging
+    echo "Downloading source from GitHub..."
+    if ! curl -fsSL -o "$TARBALL" "$GITHUB_URL"; then
+        echo -e "${RED}❌ Failed to download Robolog source from GitHub.${NC}"
+        echo -e "${RED}Please check your internet connection and that the URL is accessible:${NC}"
+        echo -e "${RED}$GITHUB_URL${NC}"
+        exit 1
+    fi
+
+    # Extract the downloaded tarball
+    echo "Extracting application files..."
+    mkdir -p "$EXTRACT_DIR"
+    # --strip-components=1 removes the top-level "robolog-main" directory from the tarball
+    if ! tar -xzf "$TARBALL" -C "$EXTRACT_DIR" --strip-components=1; then
+        echo -e "${RED}❌ Failed to extract the downloaded tarball. It may be corrupt.${NC}"
+        # Provide info on the downloaded file for debugging
+        file "$TARBALL"
+        exit 1
+    fi
+
+    # Copy analyzer files from the extracted directory
+    cp "$EXTRACT_DIR/analyzer/analyzer.js" "$INSTALL_DIR/"
+    cp "$EXTRACT_DIR/analyzer/package.json" "$INSTALL_DIR/"
+
     # Install Node.js dependencies
-    cd $INSTALL_DIR
-    sudo -u $USER npm install --production
-    
+    cd "$INSTALL_DIR"
+    sudo -u "$USER" npm install --production
+
     # Create logs directory for fluent-bit output
-    mkdir -p $INSTALL_DIR/logs
-    chown $USER:$USER $INSTALL_DIR/logs
-    
-    # Cleanup
-    rm -rf /tmp/robolog-main
-    
+    mkdir -p "$INSTALL_DIR/logs"
+    chown "$USER:$USER" "$INSTALL_DIR/logs"
+
+    # Cleanup temporary files and directories
+    rm -rf "$TARBALL" "$EXTRACT_DIR"
+
     echo -e "${GREEN}✅ Application files installed${NC}"
 }
 
 # Configure Fluent Bit
 configure_fluentbit() {
     echo -e "${YELLOW}⚙️ Configuring Fluent Bit...${NC}"
-    
-    # ✅ FIX: Generate a functional fluent-bit.conf for the native install.
-    # This version correctly tails system logs, filters for errors, and forwards
-    # them to the local analyzer service, making the native install work as intended.
+
     cat > /etc/fluent-bit/fluent-bit.conf << 'EOF'
 [SERVICE]
     Flush        5
     Daemon       Off
     Log_Level    info
+    # Enable the monitoring endpoint for health checks and debugging.
+    HTTP_Server  On
+    HTTP_Listen  0.0.0.0
+    HTTP_Port    2020
 
-[INPUT]
-    Name              systemd
-    Tag               host.systemd.*
-    # You can add more units to monitor here, e.g., nginx.service
-    Systemd_Filter    _SYSTEMD_UNIT=robolog-analyzer.service
-    
 [INPUT]
     Name              tail
     Path              /var/log/syslog,/var/log/auth.log,/var/log/kern.log
-    Tag               host.legacy.*
+    Tag               host.log.*
     Refresh_Interval  5
     Mem_Buf_Limit     64MB
     Skip_Long_Lines   On
+    # Use a database to remember our position in the log files.
+    DB                /opt/robolog/logs/fluent-bit.db
+    DB.Sync           Normal
 
+# ✅ FIX: Use a 'rewrite_tag' filter. This is the standard, robust way to
+# filter and route logs. It looks for the keywords in the log message and
+# if it finds a match, it adds a 'host.filtered' tag to the log record.
 [FILTER]
-    Name    grep
-    Match   host.*
-    Regex   log (?i)(ERROR|CRIT|WARN|FAIL|FATAL)
-    Alias   host.filtered
+    Name          rewrite_tag
+    Match         host.log.*
+    # Rule: <key_to_check> <regular_expression> <new_tag_to_add> <keep_original_tag>
+    Rule          log (?i)(ERROR|CRIT|WARN|FAIL|FATAL) host.filtered true
+    Emitter_Name  re_emitter
 
+# ✅ FIX: This output now correctly matches the 'host.filtered' tag
+# that is created by the rewrite_tag filter above.
 [OUTPUT]
     Name          http
     Match         host.filtered
@@ -193,7 +219,9 @@ configure_fluentbit() {
     Port          9880
     URI           /logs
     Format        json
+    Retry_Limit   5
 
+# This output archives a copy of all logs for historical purposes.
 [OUTPUT]
     Name  file
     Match *
@@ -201,7 +229,7 @@ configure_fluentbit() {
     File  all.log
     Format plain
 EOF
-    
+
     echo -e "${GREEN}✅ Fluent Bit configured${NC}"
 }
 
@@ -416,12 +444,21 @@ EOF
 # Create management commands
 create_commands() {
     echo -e "${YELLOW}🛠️ Creating management commands...${NC}"
-    
+
     cat > /usr/local/bin/robolog << 'EOF'
 #!/bin/bash
 
 INSTALL_DIR="/opt/robolog"
 SERVICE_NAME="robolog"
+
+# ✅ BEST PRACTICE: Check for root privileges on commands that need it.
+# This provides a user-friendly error instead of a cryptic system error.
+if [[ "$1" =~ ^(start|stop|restart|uninstall|update)$ && $EUID -ne 0 ]]; then
+    echo -e "\033[0;31m❌ Error: This command requires root privileges.\033[0m"
+    echo -e "Please run it again with sudo:"
+    echo -e "\033[1;33msudo robolog $1\033[0m"
+    exit 1
+fi
 
 case "$1" in
     start)
@@ -466,11 +503,12 @@ case "$1" in
         echo "ERROR Test nginx error: $(date)" | logger -t nginx
         echo "CRITICAL Test system error: $(date)" | logger -t system
         echo "WARNING Test application error: $(date)" | logger -t app
-        echo "✅ Test errors generated. Check Discord in ~60 seconds."
+        echo "✅ Test errors generated. Check your webhook in ~60 seconds."
         ;;
     config)
-        echo "📝 Opening configuration file..."
-        ${EDITOR:-nano} $INSTALL_DIR/.env
+        # ✅ BEST PRACTICE: Use sudo to edit a root-owned file.
+        echo "📝 Opening configuration file (requires root)..."
+        sudo ${EDITOR:-nano} $INSTALL_DIR/.env
         ;;
     model)
         echo "🤖 Managing Ollama model..."
@@ -527,12 +565,11 @@ case "$1" in
         ;;
 esac
 EOF
-    
+
     chmod +x /usr/local/bin/robolog
-    
+
     echo -e "${GREEN}✅ Management command 'robolog' created${NC}"
 }
-
 # Pull AI model (optional)
 setup_model() {
     echo -e "${YELLOW}🤖 Setting up AI model...${NC}"
