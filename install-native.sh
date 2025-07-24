@@ -182,8 +182,20 @@ setup_application() {
         chown -R "$USER:$USER" "$INSTALL_DIR/app"
 
         cd "$INSTALL_DIR/app"
-        sudo -u "$USER" npm install --production
+
+        # ✅ FIX: Implement the correct build lifecycle for a Node.js app.
+
+        # 1. Install ALL dependencies (including devDependencies) needed for the build.
+        echo "Installing dashboard dependencies..."
+        sudo -u "$USER" npm install
+
+        # 2. Run the production build.
+        echo "Building the dashboard..."
         sudo -u "$USER" npm run build
+
+        # 3. Prune the devDependencies to keep the final installation small.
+        echo "Cleaning up development packages..."
+        sudo -u "$USER" npm prune --production
     fi
 
     rm -rf "$TARBALL" "$EXTRACT_DIR"

@@ -7,8 +7,10 @@ Robolog automatically monitors your system logs, detects critical issues, and se
 ## 📦 Quick Installation (Linux)
 
 ### 🚀 Native Installation (Recommended - No Docker Required)
+includes nextjs dashboard with nginx requirement
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash
+# Install with the optional Next.js web dashboard (requires Nginx)
+curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-native.sh | sudo bash -s -- --with-dashboard
 ```
 
 **Installation Options:**
@@ -140,6 +142,10 @@ robolog health         # Check system health
 robolog config         # Edit configuration file
 robolog update         # Update to latest version
 robolog uninstall      # Completely remove Robolog
+
+# Model management
+robolog model list         # List available AI models
+robolog model pull gemma3n:e2b   # Download a specific model
 
 # 📝 Configuration includes:
 # - Webhook URL and platform selection (Discord, Slack, Teams, Telegram, Mattermost, Rocket.Chat, Generic)
