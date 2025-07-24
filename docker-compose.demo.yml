@@ -1,0 +1,90 @@
+version: '3.8'
+
+networks:
+  robolog-net:
+    driver: bridge
+
+volumes:
+  logs:
+  ollama:
+
+services:
+  # Quick log cleanup on startup
+  log-cleaner:
+    image: busybox
+    container_name: log-cleaner
+    volumes:
+      - logs:/logs
+    command: sh -c "echo 'Clearing logs for demo...' && rm -f /logs/*.log /logs/*.db"
+
+  # Main demo application
+  app:
+    build: ./app
+    container_name: robolog-demo
+    restart: unless-stopped
+    depends_on:
+      - analyzer
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - robolog-net
+    environment:
+      - DEMO_MODE=true
+
+  # Ollama AI service (using smaller model for faster demo)
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: '6G'
+          cpus: '2.0'
+    volumes:
+      - ollama:/root/.ollama
+    command: ["serve"]
+    ports:
+      - "11434:11434"
+    networks:
+      - robolog-net
+
+  # Log collection service
+  fluent-bit:
+    image: fluent/fluent-bit:3.0
+    container_name: fluent-bit
+    depends_on:
+      - log-cleaner
+    volumes:
+      - logs:/logs
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+    ports:
+      - "24224:24224"
+    restart: unless-stopped
+    networks:
+      - robolog-net
+
+  # Log analyzer with AI
+  analyzer:
+    build: ./analyzer
+    container_name: analyzer
+    depends_on:
+      - log-cleaner
+      - ollama
+      - fluent-bit
+    volumes:
+      - logs:/logs
+    restart: unless-stopped
+    ports:
+      - "9880:9880"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - MODEL_NAME=${MODEL_NAME:-llama3.2:1b}  # Smaller model for faster demo
+      - LANGUAGE=${LANGUAGE:-English}
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - WEBHOOK_PLATFORM=${WEBHOOK_PLATFORM:-discord}
+      - DEMO_MODE=true
+    networks:
+      - robolog-net 

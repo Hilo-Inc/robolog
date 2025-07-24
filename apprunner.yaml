@@ -1,0 +1,26 @@
+version: 1.0
+runtime: docker
+build:
+  commands:
+    build:
+      - echo "Building robolog demo for App Runner"
+      - docker build -t robolog-demo ./app
+run:
+  runtime-version: latest
+  command: entrypoint.sh
+  network:
+    port: 80
+    env:
+      - name: DEMO_MODE
+        value: "true"
+      - name: MODEL_NAME
+        value: "llama3.2:1b"
+      - name: LANGUAGE
+        value: "English"
+      - name: WEBHOOK_PLATFORM
+        value: "discord"
+      - name: WEBHOOK_URL
+        value: ""
+  env:
+    - name: PORT
+      value: "80" 

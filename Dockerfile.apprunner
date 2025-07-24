@@ -1,0 +1,103 @@
+# AWS App Runner optimized Dockerfile for Robolog Demo
+# This combines the Next.js app + Ollama AI into a single container
+
+FROM node:20-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# Create app directory
+WORKDIR /app
+
+# Copy and build the Next.js application
+COPY app/package*.json ./
+RUN npm ci
+
+COPY app/ ./
+RUN npm run build
+
+# Create supervisor configuration for managing multiple services
+RUN mkdir -p /etc/supervisor/conf.d
+COPY <<EOF /etc/supervisor/conf.d/supervisord.conf
+[supervisord]
+nodaemon=true
+user=root
+logfile=/var/log/supervisor/supervisord.log
+pidfile=/var/run/supervisord.pid
+
+[program:ollama]
+command=ollama serve
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/ollama.err.log
+stdout_logfile=/var/log/ollama.out.log
+environment=OLLAMA_HOST=0.0.0.0:11434
+
+[program:nextjs]
+command=npm start
+directory=/app
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/nextjs.err.log
+stdout_logfile=/var/log/nextjs.out.log
+environment=PORT=3000
+
+[program:model-loader]
+command=/app/load-model.sh
+autostart=true
+autorestart=false
+exitcodes=0
+stderr_logfile=/var/log/model-loader.err.log
+stdout_logfile=/var/log/model-loader.out.log
+EOF
+
+# Create model loading script
+COPY <<EOF /app/load-model.sh
+#!/bin/bash
+echo "Waiting for Ollama to start..."
+sleep 15
+
+echo "Pulling lightweight AI model for demo..."
+ollama pull llama3.2:1b
+
+echo "Model loaded successfully!"
+EOF
+
+RUN chmod +x /app/load-model.sh
+
+# Create a simple health check endpoint
+COPY <<EOF /app/health.js
+const http = require('http');
+const server = http.createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'healthy', timestamp: new Date().toISOString() }));
+  } else {
+    res.writeHead(404);
+    res.end('Not Found');
+  }
+});
+server.listen(8080, () => console.log('Health check server running on port 8080'));
+EOF
+
+# Set environment variables for demo
+ENV DEMO_MODE=true
+ENV MODEL_NAME=llama3.2:1b
+ENV LANGUAGE=English
+ENV WEBHOOK_PLATFORM=discord
+ENV WEBHOOK_URL=""
+ENV OLLAMA_URL=http://localhost:11434
+ENV PORT=3000
+
+# Expose ports
+EXPOSE 3000 8080
+
+# Start supervisor to manage all services
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"] 

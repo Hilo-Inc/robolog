@@ -1,0 +1,22 @@
+name: robolog-demo
+services:
+- name: robolog-app
+  source_dir: /
+  dockerfile_path: app/Dockerfile
+  github:
+    repo: your-username/robolog
+    branch: main
+  http_port: 80
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  routes:
+  - path: /
+  envs:
+  - key: WEBHOOK_URL
+    value: https://discord.com/api/webhooks/DEMO/TOKEN
+  - key: MODEL_NAME
+    value: gemma3n:e2b
+  - key: LANGUAGE
+    value: English
+  - key: WEBHOOK_PLATFORM
+    value: discord 

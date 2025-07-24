@@ -1,0 +1,36 @@
+{
+  "ServiceName": "robolog-demo-service",
+  "SourceConfiguration": {
+    "ImageRepository": {
+      "ImageIdentifier": "841120775321.dkr.ecr.us-east-1.amazonaws.com/robolog-demo:latest",
+      "ImageConfiguration": {
+        "Port": "3000",
+        "RuntimeEnvironmentVariables": {
+          "DEMO_MODE": "true",
+          "MODEL_NAME": "gemma3n:4b",
+          "LANGUAGE": "English",
+          "WEBHOOK_PLATFORM": "discord",
+          "WEBHOOK_URL": ""
+        },
+        "StartCommand": "/usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"
+      },
+      "ImageRepositoryType": "ECR"
+    },
+    "AutoDeploymentsEnabled": false,
+    "AuthenticationConfiguration": {
+      "AccessRoleArn": "arn:aws:iam::841120775321:role/AppRunnerECRAccessRole"
+    }
+  },
+  "InstanceConfiguration": {
+    "Cpu": "2 vCPU",
+    "Memory": "4 GB"
+  },
+  "HealthCheckConfiguration": {
+    "Protocol": "HTTP",
+    "Path": "/api/health",
+    "Interval": 10,
+    "Timeout": 5,
+    "HealthyThreshold": 1,
+    "UnhealthyThreshold": 5
+  }
+} 
