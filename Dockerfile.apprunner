@@ -1,9 +1,9 @@
 # AWS App Runner optimized Dockerfile for Robolog Demo
-# This combines the Next.js app + Ollama AI into a single container
+# This combines the Next.js app, the Analyzer backend, and Ollama AI into a single container
 
 FROM node:20-slim
 
-# Install system dependencies
+# Install system dependencies required by all services
 RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
@@ -13,17 +13,20 @@ RUN apt-get update && apt-get install -y \
 # Install Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
-# Create app directory
-WORKDIR /app
+# --- Setup Analyzer Backend ---
+WORKDIR /app/analyzer
+COPY analyzer/package*.json ./
+RUN npm ci
+COPY analyzer/ ./
 
-# Copy and build the Next.js application
+# --- Setup Next.js Frontend ---
+WORKDIR /app
 COPY app/package*.json ./
 RUN npm ci
-
 COPY app/ ./
 RUN npm run build
 
-# Create supervisor configuration for managing multiple services
+# --- Configure Supervisor to run all services ---
 RUN mkdir -p /etc/supervisor/conf.d
 COPY <<EOF /etc/supervisor/conf.d/supervisord.conf
 [supervisord]
@@ -40,6 +43,17 @@ stderr_logfile=/var/log/ollama.err.log
 stdout_logfile=/var/log/ollama.out.log
 environment=OLLAMA_HOST=0.0.0.0:11434
 
+# ✅ ADDED: Run the analyzer backend service
+[program:analyzer]
+command=node analyzer.js
+directory=/app/analyzer
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/analyzer.err.log
+stdout_logfile=/var/log/analyzer.out.log
+# The analyzer connects to Ollama on localhost since they are in the same container
+environment=PORT=9880,OLLAMA_URL="http://localhost:11434"
+
 [program:nextjs]
 command=npm start
 directory=/app
@@ -47,7 +61,9 @@ autostart=true
 autorestart=true
 stderr_logfile=/var/log/nextjs.err.log
 stdout_logfile=/var/log/nextjs.out.log
-environment=PORT=3000
+# ✅ UPDATED: The Next.js app needs to know where the analyzer is.
+# Since it's in the same container, it can connect via localhost.
+environment=PORT=3000,NEXT_PUBLIC_ANALYZER_URL="http://localhost:9880"
 
 [program:model-loader]
 command=/app/load-model.sh
@@ -58,46 +74,38 @@ stderr_logfile=/var/log/model-loader.err.log
 stdout_logfile=/var/log/model-loader.out.log
 EOF
 
-# Create model loading script
+# This polls the Ollama API to ensure it's ready before trying to pull the model.
 COPY <<EOF /app/load-model.sh
-#!/bin/bash
-echo "Waiting for Ollama to start..."
-sleep 15
+#!/bin/sh
+echo "Waiting for Ollama API to become available..."
 
+# Poll the Ollama API until it returns a 200 OK
+until curl -s -f http://localhost:11434/ > /dev/null; do
+    printf '.'
+    sleep 2
+done
+
+echo "\nOllama is ready!"
 echo "Pulling lightweight AI model for demo..."
-ollama pull llama3.2:1b
+ollama pull \${MODEL_NAME:-llama3.2:1b}
 
 echo "Model loaded successfully!"
 EOF
 
-RUN chmod +x /app/load-model.sh
+# ✅ FIX: Ensure the script has Unix-style line endings (LF) and is executable.
+# This prevents the 'exit status 127' error when building on Windows.
+RUN sed -i 's/\r$//' /app/load-model.sh && chmod +x /app/load-model.sh
 
-# Create a simple health check endpoint
-COPY <<EOF /app/health.js
-const http = require('http');
-const server = http.createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'healthy', timestamp: new Date().toISOString() }));
-  } else {
-    res.writeHead(404);
-    res.end('Not Found');
-  }
-});
-server.listen(8080, () => console.log('Health check server running on port 8080'));
-EOF
-
-# Set environment variables for demo
+# Set default environment variables
+# These can be overridden in the App Runner service configuration
 ENV DEMO_MODE=true
 ENV MODEL_NAME=llama3.2:1b
 ENV LANGUAGE=English
 ENV WEBHOOK_PLATFORM=discord
 ENV WEBHOOK_URL=""
-ENV OLLAMA_URL=http://localhost:11434
-ENV PORT=3000
 
-# Expose ports
-EXPOSE 3000 8080
+# Expose the port for the Next.js app, which App Runner will connect to
+EXPOSE 3000
 
 # Start supervisor to manage all services
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"] 
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
