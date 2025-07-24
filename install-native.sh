@@ -600,10 +600,15 @@ main() {
     done
 
     if [[ "$AUTO_YES" != "true" ]]; then
-        read -p "Install the Web Dashboard (requires Nginx)? [y/N]: " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            INSTALL_DASHBOARD=true
+        if [ -t 0 ]; then
+            read -p "Install the Web Dashboard (requires Nginx)? [y/N]: " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                INSTALL_DASHBOARD=true
+            fi
+        else
+            echo -e "${YELLOW}⚠️  No terminal detected. Skipping dashboard install prompt.${NC}"
+            INSTALL_DASHBOARD=false
         fi
     fi
 
