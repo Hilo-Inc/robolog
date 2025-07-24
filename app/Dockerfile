@@ -51,10 +51,14 @@ COPY --from=builder /usr/src/app/public ./public
 COPY --from=builder /usr/src/app/node_modules ./node_modules
 
 # ---- Entrypoint ----
- # Copy the entrypoint script and make it executable within the container.
+ # Copy the entrypoint script into the container.
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# ✅ FIX: Ensure the script has Unix-style line endings (LF) and is executable.
+# This prevents the 'no such file or directory' error when building on Windows.
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
 # ---- Expose & Entrypoint ----
 EXPOSE 80 443
-ENTRYPOINT ["entrypoint.sh"]
+# ✅ BEST PRACTICE: Use the full path for the entrypoint for clarity and robustness.
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
