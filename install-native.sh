@@ -384,35 +384,82 @@ EOF
     echo -e "${GREEN}✅ Fluent Bit configured${NC}"
 }
 
+# In C:/dev/robolog/install-native.sh
+
 # Configure Nginx for the dashboard
 configure_nginx() {
-    echo -e "${YELLOW}⚙️ Configuring Nginx...${NC}"
-    local NGINX_CONF="/etc/nginx/sites-available/robolog"
-    local DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
+    echo -e "${YELLOW}⚙️  Configuring Nginx...${NC}"
+    # ✅ BEST PRACTICE: Define a clear, unique name for our config file.
+    local NGINX_CONF_NAME="robolog-dashboard.conf"
+    local NGINX_AVAILABLE_DIR="/etc/nginx/sites-available"
+    local NGINX_ENABLED_DIR="/etc/nginx/sites-enabled"
+    local FINAL_CONF_PATH="$NGINX_AVAILABLE_DIR/$NGINX_CONF_NAME"
 
-    mkdir -p "$DASHBOARD_CERT_DIR"
-    if [[ ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" || ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" ]]; then
-        echo -e "${YELLOW}⚠️  No self-signed cert found. Generating one for demo use...${NC}"
-        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-          -keyout "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" \
-          -out "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" \
-          -subj "/CN=localhost"
-        echo -e "${GREEN}✅ Self-signed SSL cert generated at $DASHBOARD_CERT_DIR${NC}"
+    # Use the Docker config as the single source of truth.
+    local SOURCE_NGINX_CONF="$INSTALL_DIR/app/nginx.conf"
+
+    if [[ ! -f "$SOURCE_NGINX_CONF" ]]; then
+        echo -e "${RED}❌ Nginx source config not found at $SOURCE_NGINX_CONF. Aborting.${NC}"
+        exit 1
     fi
 
-    cp "$INSTALL_DIR/app/nginx-native.conf" "$NGINX_CONF"
-    sed -i 's|http://analyzer:9880|http://localhost:9880|g' "$NGINX_CONF"
+    # Create the sites-available directory if it doesn't exist (common on some systems)
+    mkdir -p "$NGINX_AVAILABLE_DIR"
+    mkdir -p "$NGINX_ENABLED_DIR"
+
+    # Copy the base config file.
+    cp "$SOURCE_NGINX_CONF" "$FINAL_CONF_PATH"
+
+    # ✅ FIX: Reliably modify the config for a native environment.
+    # This replaces the Docker service name 'analyzer' with 'localhost'
+    # and updates the log paths for a standard Linux system.
+    sed -i 's|http://analyzer:9880|http://localhost:9880|g' "$FINAL_CONF_PATH"
+    sed -i 's|access_log /dev/stdout;|access_log /var/log/nginx/robolog-access.log;|g' "$FINAL_CONF_PATH"
+    sed -i 's|error_log /dev/stderr;|error_log /var/log/nginx/robolog-error.log;|g' "$FINAL_CONF_PATH"
+
+    # Copy self-signed SSL certs (your existing logic is good)
+    local DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
     mkdir -p /etc/nginx/certs
     cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" /etc/nginx/certs/
     cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" /etc/nginx/certs/
-    ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/default
-    if nginx -t; then
-        systemctl restart nginx
-        echo -e "${GREEN}✅ Nginx configured and restarted${NC}"
-    else
-        echo -e "${RED}❌ Nginx configuration test failed. Please check /etc/nginx/sites-available/robolog${NC}"
-        exit 1
-    fi
+
+    echo -e "${GREEN}✅ Nginx configuration for Robolog has been created at:${NC}"
+    echo -e "${YELLOW}$FINAL_CONF_PATH${NC}"
+
+    # ✅ BEST PRACTICE: Do NOT automatically enable the site.
+    # Instead, provide clear instructions for the user to do it themselves.
+    # This is stored in a global variable to be displayed at the end of the script.
+    NGINX_POST_INSTALL_MESSAGE=$(cat <<EOF
+
+${BLUE}-------------------------------------------------------------------${NC}
+${YELLOW}ACTION REQUIRED: Enable the Robolog Dashboard in Nginx${NC}
+${BLUE}-------------------------------------------------------------------${NC}
+The Robolog dashboard configuration has been created but is not yet active.
+You have two options:
+
+${GREEN}OPTION 1: Enable as a new, separate site (easiest method)${NC}
+Run this command to activate the site, then test your Nginx config:
+
+    ${YELLOW}sudo ln -s $FINAL_CONF_PATH $NGINX_ENABLED_DIR/${NGINX_CONF_NAME}${NC}
+    ${YELLOW}sudo nginx -t && sudo systemctl restart nginx${NC}
+
+${GREEN}OPTION 2: Manually merge into your existing website\'s config${NC}
+If you are already running a website on this server, add the following
+'location' block inside your existing 'server { ... }' block:
+
+    ${YELLOW}# --- Robolog WebSocket proxy (add this to your existing config) ---
+    location /analyzer/ {
+        proxy_pass http://localhost:9880/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host \$host;
+    }${NC}
+
+After adding the block, test and restart Nginx:
+    ${YELLOW}sudo nginx -t && sudo systemctl restart nginx${NC}
+EOF
+)
 }
 
 
@@ -585,6 +632,7 @@ main() {
     CLI_MODEL_NAME=""
     CLI_LANGUAGE=""
     CLI_PLATFORM=""
+    NGINX_POST_INSTALL_MESSAGE=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -661,6 +709,9 @@ main() {
         echo -e "${YELLOW}https://<your-server-ip>${NC}"
         echo -e "${RED}(Note: It uses a self-signed SSL certificate, so your browser will show a warning. This is safe to accept for a demo.)${NC}"
         echo ""
+    fi
+    if [[ -n "$NGINX_POST_INSTALL_MESSAGE" ]]; then
+        echo -e "$NGINX_POST_INSTALL_MESSAGE"
     fi
     echo -e "${BLUE}Next steps:${NC}"
     echo -e "1. Edit configuration: ${YELLOW}robolog config${NC}"
