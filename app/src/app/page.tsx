@@ -93,9 +93,19 @@ export default function DashboardPage() {
 
         socket.on("connect", () => setStatus("Connected to Analyzer"));
         socket.on("disconnect", () => setStatus("Disconnected from Analyzer"));
+
+        // ✅ BEST PRACTICE: Handle connection errors explicitly.
+        // This gives the user immediate feedback if the backend WebSocket is down.
+        socket.on("connect_error", (err) => {
+            console.error("WebSocket connection error:", err.message);
+            // Provide a user-friendly error message.
+            setStatus(`Connection Error: Is the analyzer running?`);
+        });
+
         socket.on("new-summary", (newReport: string) => {
             setReports(prev => [newReport, ...prev]);
         });
+
         return () => {
             socket.disconnect();
         };

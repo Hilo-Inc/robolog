@@ -27,12 +27,13 @@ services:
     container_name: app
     restart: unless-stopped
     depends_on:
-      # Simplified dependency for debugging. We will restore health checks later.
       - analyzer
     ports:
-      - "80:80"   # For the HTTP -> HTTPS redirect
-      - "443:443" # For the main HTTPS site
-    networks: # ✨ 2. Add the service to your custom network
+      - "80:80"
+      - "443:443"
+    environment:
+      - ANALYZER_INTERNAL_URL=http://analyzer:9880
+    networks:
       - robolog-net
 
   # 👉 Ollama serving Gemma 3n (e2b)

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAnalyzerUrl } from '@/lib/analyzer-api'; // ✨ Import the helper
 
-// The URL for the analyzer service, using Docker's internal DNS.
-const ANALYZER_URL = 'http://analyzer:9880/set-webhook';
+// ✅ The URL is now dynamic and determined by the environment.
+const ANALYZER_URL = `${getAnalyzerUrl()}/set-webhook`;
+
+//const ANALYZER_URL = 'http://analyzer:9880/set-webhook';
 
 export async function POST(req: NextRequest) {
     // ✅ Log that the API route has been hit.

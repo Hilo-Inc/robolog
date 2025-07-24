@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import { getAnalyzerUrl } from '@/lib/analyzer-api'; // ✨ Import the helper
 
-const ANALYZER_URL = 'http://analyzer:9880/reports';
+// ✅ The URL is now dynamic and determined by the environment.
+const ANALYZER_URL = `${getAnalyzerUrl()}/reports`;
 
 export const dynamic = 'force-dynamic'; // Ensures the route is not cached
 
@@ -15,6 +17,7 @@ export async function GET() {
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
         console.error("Error in /api/reports:", errorMessage);
-        return NextResponse.json({ message: `Internal server error: ${errorMessage}` }, { status: 500 });
+        // ✅ Provide a more helpful error message to the frontend.
+        return NextResponse.json({ message: `Could not contact the analyzer service. Is it running? Error: ${errorMessage}` }, { status: 500 });
     }
 }

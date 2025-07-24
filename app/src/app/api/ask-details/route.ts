@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAnalyzerUrl } from '@/lib/analyzer-api'; // ✨ Import the helper
 
-const ANALYZER_URL = 'http://analyzer:9880/ask-details';
+// ✅ The URL is now dynamic and determined by the environment.
+const ANALYZER_URL = `${getAnalyzerUrl()}/ask-details`;
 
 export async function POST(req: NextRequest) {
     try {
