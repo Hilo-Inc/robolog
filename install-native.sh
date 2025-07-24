@@ -388,11 +388,23 @@ EOF
 configure_nginx() {
     echo -e "${YELLOW}⚙️ Configuring Nginx...${NC}"
     local NGINX_CONF="/etc/nginx/sites-available/robolog"
+    local DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
+
+    mkdir -p "$DASHBOARD_CERT_DIR"
+    if [[ ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" || ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" ]]; then
+        echo -e "${YELLOW}⚠️  No self-signed cert found. Generating one for demo use...${NC}"
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+          -keyout "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" \
+          -out "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" \
+          -subj "/CN=localhost"
+        echo -e "${GREEN}✅ Self-signed SSL cert generated at $DASHBOARD_CERT_DIR${NC}"
+    fi
+
     cp "$INSTALL_DIR/app/nginx.conf" "$NGINX_CONF"
     sed -i 's|http://analyzer:9880|http://localhost:9880|g' "$NGINX_CONF"
     mkdir -p /etc/nginx/certs
-    cp "$INSTALL_DIR/app/certs/nginx-selfsigned.crt" /etc/nginx/certs/
-    cp "$INSTALL_DIR/app/certs/nginx-selfsigned.key" /etc/nginx/certs/
+    cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" /etc/nginx/certs/
+    cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" /etc/nginx/certs/
     ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/default
     if nginx -t; then
         systemctl restart nginx
@@ -402,6 +414,7 @@ configure_nginx() {
         exit 1
     fi
 }
+
 
 # Create systemd services
 create_services() {
@@ -605,6 +618,17 @@ main() {
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 INSTALL_DASHBOARD=true
+                # Before configuring Nginx
+                DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
+                mkdir -p "$DASHBOARD_CERT_DIR"
+                if [[ ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" || ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" ]]; then
+                    echo -e "${YELLOW}⚠️  No self-signed cert found. Generating one for demo use...${NC}"
+                    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+                      -keyout "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" \
+                      -out "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" \
+                      -subj "/CN=localhost"
+                    echo -e "${GREEN}✅ Self-signed SSL cert generated at $DASHBOARD_CERT_DIR${NC}"
+                fi
             fi
         else
             echo -e "${YELLOW}⚠️  No terminal detected. Skipping dashboard install prompt.${NC}"
