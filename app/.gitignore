@@ -113,7 +113,7 @@ ehthumbs.db
 Thumbs.db
 
 # Docker
-.dockerignore
+#.dockerignore
 
 # Fluent Bit data
 fluent-bit/data/

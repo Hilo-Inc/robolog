@@ -13,3 +13,9 @@ services:
 # No entrypoint or command override is needed. The container will run its
 # default CMD ("/sbin/init"), which will in turn execute our test script
 # via /etc/rc.local. The test script will shut down the container upon completion.
+
+
+#watch the automated test by running:  docker-compose -f docker-compose.test.yml up --build
+
+
+#run it manually by running: docker-compose -f docker-compose.test.yml run --rm test-native-install /bin/bash

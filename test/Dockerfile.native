@@ -1,24 +1,30 @@
-# Use a base image that includes systemd to test service creation and management.
-FROM jrei/systemd-ubuntu:22.04
+# Use a more modern and reliable base image for systemd.
+# 'jammy' is the codename for Ubuntu 22.04.
+FROM solita/ubuntu-systemd:22.04
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ✅ FIX: Install `curl`, a prerequisite for the installation script.
-# The base image is minimal and does not include `curl`, which the script needs
-# to download the Node.js setup script from NodeSource.
-# We also install `coreutils` and `sudo` for general utilities.
-RUN apt-get update && apt-get install -y curl coreutils sudo
+# Install prerequisites for the installation script.
+# ✅ BEST PRACTICE: Combine RUN commands to reduce image layers.
+RUN apt-get update && \
+    apt-get install -y curl coreutils sudo && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy the installation script into the container
+# Copy the scripts into the container
 COPY ./install-native.sh /tmp/install-native.sh
 COPY ./test/run-test.sh /usr/local/bin/run-test.sh
 COPY ./test/robolog-test-runner.service /etc/systemd/system/robolog-test-runner.service
 
-# Make the script executable
+# Convert Windows line endings (CRLF) to Unix (LF).
+RUN sed -i 's/\r$//' /tmp/install-native.sh
+RUN sed -i 's/\r$//' /usr/local/bin/run-test.sh
+
+# Make the scripts executable
 RUN chmod +x /tmp/install-native.sh
 RUN chmod +x /usr/local/bin/run-test.sh
 
-# ✅ BEST PRACTICE: Use a dedicated systemd service to run the test script.
-# This is more reliable than using rc.local and provides better control.
-RUN systemctl enable robolog-test-runner.service
+# The test service is intentionally not enabled here,
+# allowing for manual testing via `docker exec`.ls
+# To run the automated test, uncomment the line below.
+# RUN systemctl enable robolog-test-runner.service
