@@ -400,7 +400,7 @@ configure_nginx() {
         echo -e "${GREEN}✅ Self-signed SSL cert generated at $DASHBOARD_CERT_DIR${NC}"
     fi
 
-    cp "$INSTALL_DIR/app/nginx.conf" "$NGINX_CONF"
+    cp "$INSTALL_DIR/app/nginx-native.conf" "$NGINX_CONF"
     sed -i 's|http://analyzer:9880|http://localhost:9880|g' "$NGINX_CONF"
     mkdir -p /etc/nginx/certs
     cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" /etc/nginx/certs/
