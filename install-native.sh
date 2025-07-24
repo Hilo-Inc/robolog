@@ -72,10 +72,7 @@ install_fluentbit() {
     echo -e "${YELLOW}📦 Installing Fluent Bit...${NC}"
     
     case $DISTRO in
-        "ubuntu"|"debian")
-            curl https://raw.githubusercontent.com/fluent/fluent-bit/master/install.sh | sh
-            ;;
-        "centos"|"rhel"|"fedora")
+        "ubuntu"|"debian"|"centos"|"rhel"|"fedora")
             curl https://raw.githubusercontent.com/fluent/fluent-bit/master/install.sh | sh
             ;;
         "arch")
@@ -86,105 +83,256 @@ install_fluentbit() {
             exit 1
             ;;
     esac
-    
+
     echo -e "${GREEN}✅ Fluent Bit installed${NC}"
+}
+
+# Install Nginx
+install_nginx() {
+    echo -e "${YELLOW}📦 Installing Nginx...${NC}"
+
+    case $DISTRO in
+        "ubuntu"|"debian")
+            apt-get install -y nginx
+            ;;
+        "centos"|"rhel"|"fedora")
+            yum install -y nginx
+            ;;
+        "arch")
+            pacman -S --noconfirm nginx
+            ;;
+        *)
+            echo -e "${RED}❌ Unsupported distribution for Nginx: $DISTRO${NC}"
+            exit 1
+            ;;
+    esac
+
+    systemctl enable nginx
+    echo -e "${GREEN}✅ Nginx installed${NC}"
 }
 
 # Install Ollama
 install_ollama() {
     echo -e "${YELLOW}📦 Installing Ollama...${NC}"
-    
-    # Ollama has a universal installer
+
     curl -fsSL https://ollama.ai/install.sh | sh
-    
-    # Start and enable Ollama service
+
     systemctl start ollama
     systemctl enable ollama
-    
+
     echo -e "${GREEN}✅ Ollama installed and started${NC}"
 }
 
 # Create user and directories
 setup_user() {
     echo -e "${YELLOW}👤 Setting up user and directories...${NC}"
-    
-    # Create user
+
     if ! id "$USER" &>/dev/null; then
         useradd -r -s /bin/bash -d $INSTALL_DIR $USER
         echo -e "${GREEN}✅ Created user: $USER${NC}"
     fi
-    
-    # Create directories
-    mkdir -p $INSTALL_DIR
-    mkdir -p $INSTALL_DIR/logs
+
+    mkdir -p "$INSTALL_DIR/logs"
     mkdir -p /var/log/robolog
     mkdir -p /etc/fluent-bit
-    
-    # Set permissions
-    chown -R $USER:$USER $INSTALL_DIR
-    chown -R $USER:$USER /var/log/robolog
-    
+
+    chown -R "$USER:$USER" "$INSTALL_DIR"
+    chown -R "$USER:$USER" /var/log/robolog
+
     echo -e "${GREEN}✅ Created directories and set permissions${NC}"
 }
 
-# Download and setup application files
 # Download and setup application files
 setup_application() {
     echo -e "${YELLOW}📥 Setting up Robolog application...${NC}"
 
     local GITHUB_URL="https://github.com/Hilo-Inc/robolog/archive/refs/heads/main.tar.gz"
+    local AUTH_HEADER=""
+    if [[ -n "$GITHUB_TOKEN" ]]; then
+        AUTH_HEADER="-H \"Authorization: Bearer $GITHUB_TOKEN\""
+    fi
+
     local TMP_DIR="/tmp"
     local TARBALL="$TMP_DIR/robolog-main.tar.gz"
     local EXTRACT_DIR="$TMP_DIR/robolog-main"
 
-    # Download to a file first for better error handling and debugging
     echo "Downloading source from GitHub..."
-    if ! curl -fsSL -o "$TARBALL" "$GITHUB_URL"; then
+    if ! eval "curl -fsSL $AUTH_HEADER -o \"$TARBALL\" \"$GITHUB_URL\""; then
         echo -e "${RED}❌ Failed to download Robolog source from GitHub.${NC}"
-        echo -e "${RED}Please check your internet connection and that the URL is accessible:${NC}"
-        echo -e "${RED}$GITHUB_URL${NC}"
         exit 1
     fi
 
-    # Extract the downloaded tarball
     echo "Extracting application files..."
     mkdir -p "$EXTRACT_DIR"
-    # --strip-components=1 removes the top-level "robolog-main" directory from the tarball
     if ! tar -xzf "$TARBALL" -C "$EXTRACT_DIR" --strip-components=1; then
-        echo -e "${RED}❌ Failed to extract the downloaded tarball. It may be corrupt.${NC}"
-        # Provide info on the downloaded file for debugging
-        file "$TARBALL"
+        echo -e "${RED}❌ Failed to extract the downloaded tarball.${NC}"
         exit 1
     fi
 
-    # Copy analyzer files from the extracted directory
+    echo "Setting up Analyzer..."
     cp "$EXTRACT_DIR/analyzer/analyzer.js" "$INSTALL_DIR/"
     cp "$EXTRACT_DIR/analyzer/package.json" "$INSTALL_DIR/"
-
-    # Install Node.js dependencies
     cd "$INSTALL_DIR"
     sudo -u "$USER" npm install --production
 
-    # Create logs directory for fluent-bit output
-    mkdir -p "$INSTALL_DIR/logs"
-    chown "$USER:$USER" "$INSTALL_DIR/logs"
+    if [[ "$INSTALL_DASHBOARD" = true ]]; then
+        echo "Setting up Web Dashboard..."
+        mkdir -p "$INSTALL_DIR/app"
+        cp -r "$EXTRACT_DIR/app/." "$INSTALL_DIR/app/"
+        chown -R "$USER:$USER" "$INSTALL_DIR/app"
 
-    # Cleanup temporary files and directories
+        cd "$INSTALL_DIR/app"
+        sudo -u "$USER" npm install --production
+        sudo -u "$USER" npm run build
+    fi
+
     rm -rf "$TARBALL" "$EXTRACT_DIR"
 
     echo -e "${GREEN}✅ Application files installed${NC}"
 }
 
+# ✅ FIX: This is the single, unified setup_config function.
+# It correctly handles both command-line flags and interactive prompts.
+setup_config() {
+    local cli_lang="$1"
+    local cli_platform="$2"
+
+    local final_language="English"
+    local final_platform="discord"
+    local webhook_instructions=""
+
+    echo -e "${YELLOW}⚙️ Setting up configuration...${NC}"
+
+    if [[ "$AUTO_YES" == "true" ]]; then
+        final_language=${cli_lang:-"English"}
+        final_platform=${cli_platform:-"discord"}
+        echo -e "${BLUE}Running in non-interactive mode.${NC}"
+        echo -e "${BLUE}Language set to: $final_language${NC}"
+        echo -e "${BLUE}Platform set to: $final_platform${NC}"
+    else
+        echo -e "${BLUE}Select your preferred language for AI notifications:${NC}"
+        echo -e "${YELLOW}1) English ${NC}[default], 2) Spanish, 3) French, 4) German, 5) Chinese, 6) Japanese, 7) Portuguese, 8) Russian, 9) Italian, 10) Other${NC}"
+        read -p "Select language or press Enter for English [1]: " -n 2 -r
+        echo
+        case $REPLY in
+            2) final_language="Spanish" ;;
+            3) final_language="French" ;;
+            4) final_language="German" ;;
+            5) final_language="Chinese" ;;
+            6) final_language="Japanese" ;;
+            7) final_language="Portuguese" ;;
+            8) final_language="Russian" ;;
+            9) final_language="Italian" ;;
+            10) read -p "Enter your preferred language: " final_language ;;
+            *) final_language="English" ;;
+        esac
+        echo -e "${BLUE}Selected language: $final_language${NC}\n"
+
+        echo -e "${BLUE}Select your webhook platform for notifications:${NC}"
+        echo -e "${YELLOW}1) Discord ${NC}[default], 2) Slack, 3) Teams, 4) Telegram, 5) Mattermost, 6) Rocket.Chat, 7) Generic${NC}"
+        read -p "Select platform or press Enter for Discord [1]: " -n 1 -r
+        echo
+        case $REPLY in
+            2) final_platform="slack" ;;
+            3) final_platform="teams" ;;
+            4) final_platform="telegram" ;;
+            5) final_platform="mattermost" ;;
+            6) final_platform="rocketchat" ;;
+            7) final_platform="generic" ;;
+            *) final_platform="discord" ;;
+        esac
+        echo -e "${BLUE}Selected platform: $final_platform${NC}\n"
+    fi
+
+    case $final_platform in
+        "slack") webhook_instructions="# Get webhook URL from Slack: Apps > Incoming Webhooks > Add New Webhook" ;;
+        "teams") webhook_instructions="# Get webhook URL from Teams: Channel > Connectors > Incoming Webhook" ;;
+        "telegram") webhook_instructions="# Create Telegram bot: @BotFather > /newbot, then use https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>" ;;
+        "mattermost") webhook_instructions="# Get webhook URL from Mattermost: Integrations > Incoming Webhooks" ;;
+        "rocketchat") webhook_instructions="# Get webhook URL from Rocket.Chat: Administration > Integrations > Incoming" ;;
+        "generic") webhook_instructions="# Provide any HTTP endpoint that accepts JSON POST requests" ;;
+        *) webhook_instructions="# Get webhook URL from Discord: Server Settings > Integrations > Webhooks" ;;
+    esac
+
+    cat > "$INSTALL_DIR/.env" << EOF
+# Webhook configuration for notifications
+$webhook_instructions
+WEBHOOK_URL=
+WEBHOOK_PLATFORM=$final_platform
+DISCORD_WEBHOOK_URL=
+MODEL_NAME=gemma3n:e2b
+LANGUAGE=$final_language
+POLL_MS=60000
+OLLAMA_URL=http://localhost:11434
+EOF
+
+    chown "$USER:$USER" "$INSTALL_DIR/.env"
+    echo -e "${GREEN}✅ Configuration file created at $INSTALL_DIR/.env${NC}"
+}
+
+# ✅ FIX: This is the single, unified setup_model function.
+# It correctly handles command-line flags and interactive prompts.
+setup_model() {
+    local cli_model="$1"
+    local final_model_name=""
+    local model_desc=""
+    local model_size=""
+
+    echo -e "${YELLOW}🤖 Setting up AI model...${NC}"
+
+    if [[ "$SKIP_MODEL" == "true" ]]; then
+        echo -e "${YELLOW}⏭️ Model download skipped due to --skip-model flag.${NC}"
+        sed -i "s/MODEL_NAME=.*/MODEL_NAME=gemma3n:e2b/" "$INSTALL_DIR/.env"
+        return
+    fi
+
+    if [[ "$AUTO_YES" == "true" ]]; then
+        final_model_name=${cli_model:-"gemma3n:e2b"}
+        echo -e "${BLUE}Running in non-interactive mode. Model set to: $final_model_name${NC}"
+    else
+        echo -e "${BLUE}Choose an AI model for log analysis:${NC}"
+        echo -e "${YELLOW}1) gemma3n:e2b (5.6GB) - Google's Gemma 3n model [default]${NC}"
+        echo -e "${YELLOW}2) qwen3:8b (5.2GB) - Alibaba's Qwen 3 model with thinking mode${NC}"
+        echo -e "${YELLOW}3) llama3.2:1b (1.3GB) - Meta's smaller LLaMA model${NC}"
+        echo -e "${YELLOW}4) phi3:mini (2.3GB) - Microsoft's Phi-3 mini model${NC}"
+        read -p "Select model (1-4) or press Enter for default [1]: " -n 1 -r
+        echo
+        case $REPLY in
+            2) final_model_name="qwen3:8b"; model_desc="Qwen 3 8B"; model_size="5.2GB" ;;
+            3) final_model_name="llama3.2:1b"; model_desc="LLaMA 3.2 1B"; model_size="1.3GB" ;;
+            4) final_model_name="phi3:mini"; model_desc="Phi-3 Mini"; model_size="2.3GB" ;;
+            *) final_model_name="gemma3n:e2b"; model_desc="Gemma 3n"; model_size="5.6GB" ;;
+        esac
+        echo -e "${BLUE}Selected: $model_desc ($model_size)${NC}\n"
+    fi
+
+    # Update the .env file with the final selected model
+    sed -i "s/MODEL_NAME=.*/MODEL_NAME=$final_model_name/" "$INSTALL_DIR/.env"
+
+    # Ask user if they want to download now, unless in auto-yes mode
+    if [[ "$AUTO_YES" == "true" ]] || { read -p "Download ${model_desc:-$final_model_name} now? [y/N]: " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ ]]; }; then
+        echo -e "${YELLOW}⏳ Waiting for Ollama to be ready...${NC}"
+        # ✅ BEST PRACTICE: Poll the Ollama service instead of using a fixed sleep.
+        until sudo -u ollama ollama list > /dev/null 2>&1; do
+            printf '.'
+            sleep 2
+        done
+        echo -e "\n${YELLOW}📥 Downloading ${model_desc:-$final_model_name}...${NC}"
+        sudo -u ollama ollama pull "$final_model_name"
+        echo -e "${GREEN}✅ AI model ready${NC}"
+    else
+        echo -e "${YELLOW}⏭️ Model download skipped. You can download it later with: robolog model pull $final_model_name${NC}"
+    fi
+}
+
 # Configure Fluent Bit
 configure_fluentbit() {
     echo -e "${YELLOW}⚙️ Configuring Fluent Bit...${NC}"
-
     cat > /etc/fluent-bit/fluent-bit.conf << 'EOF'
 [SERVICE]
     Flush        5
     Daemon       Off
     Log_Level    info
-    # Enable the monitoring endpoint for health checks and debugging.
     HTTP_Server  On
     HTTP_Listen  0.0.0.0
     HTTP_Port    2020
@@ -196,22 +344,15 @@ configure_fluentbit() {
     Refresh_Interval  5
     Mem_Buf_Limit     64MB
     Skip_Long_Lines   On
-    # Use a database to remember our position in the log files.
     DB                /opt/robolog/logs/fluent-bit.db
     DB.Sync           Normal
 
-# ✅ FIX: Use a 'rewrite_tag' filter. This is the standard, robust way to
-# filter and route logs. It looks for the keywords in the log message and
-# if it finds a match, it adds a 'host.filtered' tag to the log record.
 [FILTER]
     Name          rewrite_tag
     Match         host.log.*
-    # Rule: <key_to_check> <regular_expression> <new_tag_to_add> <keep_original_tag>
     Rule          log (?i)(ERROR|CRIT|WARN|FAIL|FATAL) host.filtered true
     Emitter_Name  re_emitter
 
-# ✅ FIX: This output now correctly matches the 'host.filtered' tag
-# that is created by the rewrite_tag filter above.
 [OUTPUT]
     Name          http
     Match         host.filtered
@@ -221,7 +362,6 @@ configure_fluentbit() {
     Format        json
     Retry_Limit   5
 
-# This output archives a copy of all logs for historical purposes.
 [OUTPUT]
     Name  file
     Match *
@@ -229,20 +369,37 @@ configure_fluentbit() {
     File  all.log
     Format plain
 EOF
-
     echo -e "${GREEN}✅ Fluent Bit configured${NC}"
+}
+
+# Configure Nginx for the dashboard
+configure_nginx() {
+    echo -e "${YELLOW}⚙️ Configuring Nginx...${NC}"
+    local NGINX_CONF="/etc/nginx/sites-available/robolog"
+    cp "$INSTALL_DIR/app/nginx.conf" "$NGINX_CONF"
+    sed -i 's|http://analyzer:9880|http://localhost:9880|g' "$NGINX_CONF"
+    mkdir -p /etc/nginx/certs
+    cp "$INSTALL_DIR/app/certs/nginx-selfsigned.crt" /etc/nginx/certs/
+    cp "$INSTALL_DIR/app/certs/nginx-selfsigned.key" /etc/nginx/certs/
+    ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/default
+    if nginx -t; then
+        systemctl restart nginx
+        echo -e "${GREEN}✅ Nginx configured and restarted${NC}"
+    else
+        echo -e "${RED}❌ Nginx configuration test failed. Please check /etc/nginx/sites-available/robolog${NC}"
+        exit 1
+    fi
 }
 
 # Create systemd services
 create_services() {
     echo -e "${YELLOW}🔧 Creating systemd services...${NC}"
-    
-    # Robolog Analyzer Service
+
     cat > /etc/systemd/system/robolog-analyzer.service << EOF
 [Unit]
 Description=Robolog Log Analyzer
-After=network.target ollama.service fluent-bit.service
-Wants=ollama.service fluent-bit.service
+After=network.target ollama.service
+Wants=ollama.service
 
 [Service]
 Type=simple
@@ -253,36 +410,43 @@ Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
 Environment=OLLAMA_URL=http://localhost:11434
-Environment=MODEL_NAME=\${MODEL_NAME:-gemma3n:e2b}
-Environment=LANGUAGE=\${LANGUAGE:-English}
-Environment=WEBHOOK_URL=\${WEBHOOK_URL}
-Environment=WEBHOOK_PLATFORM=\${WEBHOOK_PLATFORM:-discord}
-Environment=DISCORD_WEBHOOK_URL=\${DISCORD_WEBHOOK_URL}
 EnvironmentFile=-$INSTALL_DIR/.env
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # Fluent Bit Service (override default)
-    cat > /etc/systemd/system/fluent-bit.service << 'EOF'
+    if [[ "$INSTALL_DASHBOARD" = true ]]; then
+        echo "Creating dashboard service..."
+        cat > /etc/systemd/system/robolog-dashboard.service << EOF
 [Unit]
-Description=Fluent Bit
+Description=Robolog Web Dashboard
 After=network.target
-Wants=network.target
+Wants=robolog-analyzer.service
 
 [Service]
 Type=simple
-ExecStart=/opt/fluent-bit/bin/fluent-bit -c /etc/fluent-bit/fluent-bit.conf
+User=$USER
+WorkingDirectory=$INSTALL_DIR/app
+ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=10
+Environment=NODE_ENV=production
+Environment=ANALYZER_INTERNAL_URL=http://localhost:9880
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    fi
 
-    # Main Robolog Service (manages all components)
-    cat > /etc/systemd/system/${SERVICE_NAME}.service << 'EOF'
+    local start_cmd="systemctl start ollama fluent-bit robolog-analyzer"
+    local stop_cmd="systemctl stop robolog-analyzer fluent-bit"
+    if [[ "$INSTALL_DASHBOARD" = true ]]; then
+        start_cmd+=" nginx robolog-dashboard"
+        stop_cmd+=" robolog-dashboard nginx"
+    fi
+
+    cat > /etc/systemd/system/${SERVICE_NAME}.service << EOF
 [Unit]
 Description=Robolog - AI-Powered Log Monitoring
 After=network.target
@@ -290,9 +454,9 @@ After=network.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c 'systemctl start ollama fluent-bit robolog-analyzer'
-ExecStop=/bin/bash -c 'systemctl stop robolog-analyzer fluent-bit'
-ExecReload=/bin/bash -c 'systemctl restart ollama fluent-bit robolog-analyzer'
+ExecStart=/bin/bash -c '$start_cmd'
+ExecStop=/bin/bash -c '$stop_cmd'
+ExecReload=/bin/bash -c 'systemctl restart $start_cmd'
 
 [Install]
 WantedBy=multi-user.target
@@ -300,228 +464,59 @@ EOF
 
     systemctl daemon-reload
     systemctl enable robolog ollama fluent-bit robolog-analyzer
-    
-    echo -e "${GREEN}✅ Created systemd services${NC}"
-}
+    if [[ "$INSTALL_DASHBOARD" = true ]]; then
+        systemctl enable robolog-dashboard
+    fi
 
-# Setup configuration
-setup_config() {
-    echo -e "${YELLOW}⚙️ Setting up configuration...${NC}"
-    
-    # Ask for language preference
-    echo -e "${BLUE}Select your preferred language for AI notifications:${NC}"
-    echo -e "${YELLOW}1) English ${NC}[default]"
-    echo -e "${YELLOW}2) Spanish (Español)${NC}"
-    echo -e "${YELLOW}3) French (Français)${NC}"
-    echo -e "${YELLOW}4) German (Deutsch)${NC}"
-    echo -e "${YELLOW}5) Chinese (中文)${NC}"
-    echo -e "${YELLOW}6) Japanese (日本語)${NC}"
-    echo -e "${YELLOW}7) Portuguese (Português)${NC}"
-    echo -e "${YELLOW}8) Russian (Русский)${NC}"
-    echo -e "${YELLOW}9) Italian (Italiano)${NC}"
-    echo -e "${YELLOW}10) Other (specify)${NC}"
-    echo ""
-    
-    read -p "Select language (1-10) or press Enter for English [1]: " -n 2 -r
-    echo
-    
-    case $REPLY in
-        2)
-            SELECTED_LANGUAGE="Spanish"
-            ;;
-        3)
-            SELECTED_LANGUAGE="French"
-            ;;
-        4)
-            SELECTED_LANGUAGE="German"
-            ;;
-        5)
-            SELECTED_LANGUAGE="Chinese"
-            ;;
-        6)
-            SELECTED_LANGUAGE="Japanese"
-            ;;
-        7)
-            SELECTED_LANGUAGE="Portuguese"
-            ;;
-        8)
-            SELECTED_LANGUAGE="Russian"
-            ;;
-        9)
-            SELECTED_LANGUAGE="Italian"
-            ;;
-        10)
-            read -p "Enter your preferred language: " SELECTED_LANGUAGE
-            ;;
-        *)
-            SELECTED_LANGUAGE="English"
-            ;;
-    esac
-    
-    echo -e "${BLUE}Selected language: $SELECTED_LANGUAGE${NC}"
-    echo ""
-    
-    # Ask for webhook platform
-    echo -e "${BLUE}Select your webhook platform for notifications:${NC}"
-    echo -e "${YELLOW}1) Discord ${NC}[default]"
-    echo -e "${YELLOW}2) Slack${NC}"
-    echo -e "${YELLOW}3) Microsoft Teams${NC}"
-    echo -e "${YELLOW}4) Telegram${NC}"
-    echo -e "${YELLOW}5) Mattermost${NC}"
-    echo -e "${YELLOW}6) Rocket.Chat${NC}"
-    echo -e "${YELLOW}7) Generic Webhook${NC}"
-    echo ""
-    
-    read -p "Select platform (1-7) or press Enter for Discord [1]: " -n 1 -r
-    echo
-    
-    case $REPLY in
-        2)
-            SELECTED_PLATFORM="slack"
-            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Slack: Apps > Incoming Webhooks > Add New Webhook"
-            ;;
-        3)
-            SELECTED_PLATFORM="teams"
-            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Teams: Channel > Connectors > Incoming Webhook"
-            ;;
-        4)
-            SELECTED_PLATFORM="telegram"
-            WEBHOOK_INSTRUCTIONS="# Create Telegram bot: @BotFather > /newbot, then use https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>"
-            ;;
-        5)
-            SELECTED_PLATFORM="mattermost"
-            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Mattermost: Integrations > Incoming Webhooks"
-            ;;
-        6)
-            SELECTED_PLATFORM="rocketchat"
-            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Rocket.Chat: Administration > Integrations > Incoming"
-            ;;
-        7)
-            SELECTED_PLATFORM="generic"
-            WEBHOOK_INSTRUCTIONS="# Provide any HTTP endpoint that accepts JSON POST requests"
-            ;;
-        *)
-            SELECTED_PLATFORM="discord"
-            WEBHOOK_INSTRUCTIONS="# Get webhook URL from Discord: Server Settings > Integrations > Webhooks"
-            ;;
-    esac
-    
-    echo -e "${BLUE}Selected platform: $SELECTED_PLATFORM${NC}"
-    echo ""
-    
-    cat > $INSTALL_DIR/.env << EOF
-# Webhook configuration for notifications
-$WEBHOOK_INSTRUCTIONS
-WEBHOOK_URL=
-WEBHOOK_PLATFORM=$SELECTED_PLATFORM
-
-# Legacy Discord support (for backwards compatibility)
-# If you're using Discord, you can set either WEBHOOK_URL or DISCORD_WEBHOOK_URL
-DISCORD_WEBHOOK_URL=
-
-# Ollama model - choose from available options:
-# gemma3n:e2b  - Google Gemma 3n (5.6GB) - best quality
-# qwen3:8b     - Alibaba Qwen 3 (5.2GB) - with thinking mode
-# llama3.2:1b  - Meta LLaMA (1.3GB) - fastest
-# phi3:mini    - Microsoft Phi-3 (2.3GB) - balanced
-MODEL_NAME=gemma3n:e2b
-
-# Language for AI responses (English, Spanish, French, German, Chinese, Japanese, etc.)
-LANGUAGE=$SELECTED_LANGUAGE
-
-# Analyzer polling interval (milliseconds)
-POLL_MS=60000
-
-# Ollama URL (for native installation)
-OLLAMA_URL=http://localhost:11434
-EOF
-    
-    chown $USER:$USER $INSTALL_DIR/.env
-    
-    echo -e "${GREEN}✅ Configuration file created at $INSTALL_DIR/.env${NC}"
+    echo -e "${GREEN}✅ Created and enabled systemd services${NC}"
 }
 
 # Create management commands
 create_commands() {
     echo -e "${YELLOW}🛠️ Creating management commands...${NC}"
-
     cat > /usr/local/bin/robolog << 'EOF'
 #!/bin/bash
-
 INSTALL_DIR="/opt/robolog"
 SERVICE_NAME="robolog"
-
-# ✅ BEST PRACTICE: Check for root privileges on commands that need it.
-# This provides a user-friendly error instead of a cryptic system error.
 if [[ "$1" =~ ^(start|stop|restart|uninstall|update)$ && $EUID -ne 0 ]]; then
     echo -e "\033[0;31m❌ Error: This command requires root privileges.\033[0m"
-    echo -e "Please run it again with sudo:"
-    echo -e "\033[1;33msudo robolog $1\033[0m"
+    echo -e "Please run it again with sudo:\n\033[1;33msudo robolog $1\033[0m"
     exit 1
 fi
-
 case "$1" in
-    start)
-        echo "🚀 Starting Robolog (native)..."
-        systemctl start $SERVICE_NAME
-        ;;
-    stop)
-        echo "⏹️ Stopping Robolog..."
-        systemctl stop $SERVICE_NAME
-        ;;
-    restart)
-        echo "🔄 Restarting Robolog..."
-        systemctl restart $SERVICE_NAME
-        ;;
+    start) systemctl start $SERVICE_NAME ;;
+    stop) systemctl stop $SERVICE_NAME ;;
+    restart) systemctl restart $SERVICE_NAME ;;
     status)
         echo "📊 Robolog Status:"
         systemctl status robolog-analyzer --no-pager -l
-        echo ""
         systemctl status fluent-bit --no-pager -l
-        echo ""
         systemctl status ollama --no-pager -l
         ;;
     logs)
         case "$2" in
-            "analyzer")
-                journalctl -u robolog-analyzer -f
-                ;;
-            "fluent-bit")
-                journalctl -u fluent-bit -f
-                ;;
-            "ollama")
-                journalctl -u ollama -f
-                ;;
-            *)
-                echo "📋 All service logs (use Ctrl+C to exit):"
-                journalctl -u robolog-analyzer -u fluent-bit -u ollama -f
-                ;;
+            "analyzer") journalctl -u robolog-analyzer -f ;;
+            "fluent-bit") journalctl -u fluent-bit -f ;;
+            "ollama") journalctl -u ollama -f ;;
+            *) journalctl -u robolog-analyzer -u fluent-bit -u ollama -f ;;
         esac
         ;;
     test-errors)
         echo "🧪 Generating test errors..."
-        echo "ERROR Test nginx error: $(date)" | logger -t nginx
-        echo "CRITICAL Test system error: $(date)" | logger -t system
-        echo "WARNING Test application error: $(date)" | logger -t app
+        logger -t nginx "ERROR Test nginx error: $(date)"
+        logger -t system "CRITICAL Test system error: $(date)"
+        logger -t app "WARNING Test application error: $(date)"
         echo "✅ Test errors generated. Check your webhook in ~60 seconds."
         ;;
     config)
-        # ✅ BEST PRACTICE: Use sudo to edit a root-owned file.
         echo "📝 Opening configuration file (requires root)..."
         sudo ${EDITOR:-nano} $INSTALL_DIR/.env
         ;;
     model)
-        echo "🤖 Managing Ollama model..."
         case "$2" in
-            "pull")
-                sudo -u ollama ollama pull ${3:-gemma3n:e2b}
-                ;;
-            "list")
-                sudo -u ollama ollama list
-                ;;
-            *)
-                echo "Usage: robolog model {pull|list} [model_name]"
-                ;;
+            "pull") sudo -u ollama ollama pull ${3:-gemma3n:e2b} ;;
+            "list") sudo -u ollama ollama list ;;
+            *) echo "Usage: robolog model {pull|list} [model_name]" ;;
         esac
         ;;
     update)
@@ -549,288 +544,91 @@ case "$1" in
         ;;
     *)
         echo "Usage: robolog {start|stop|restart|status|logs|test-errors|config|model|update|uninstall}"
-        echo ""
-        echo "Commands:"
-        echo "  start           - Start Robolog services"
-        echo "  stop            - Stop Robolog services"
-        echo "  restart         - Restart Robolog services"
-        echo "  status          - Show service status"
-        echo "  logs [service]  - Show logs (analyzer|fluent-bit|ollama)"
-        echo "  test-errors     - Generate test errors"
-        echo "  config          - Edit configuration"
-        echo "  model pull/list - Manage Ollama models"
-        echo "  update          - Update to latest version"
-        echo "  uninstall       - Remove Robolog"
         exit 1
         ;;
 esac
 EOF
-
     chmod +x /usr/local/bin/robolog
-
     echo -e "${GREEN}✅ Management command 'robolog' created${NC}"
-}
-# Pull AI model (optional)
-setup_model() {
-    echo -e "${YELLOW}🤖 Setting up AI model...${NC}"
-    echo -e "${BLUE}Choose an AI model for log analysis:${NC}"
-    echo -e "${YELLOW}1) gemma3n:e2b ${NC}(5.6GB) - Google's Gemma 3n model [default]"
-    echo -e "${YELLOW}2) qwen3:8b ${NC}(5.2GB) - Alibaba's Qwen 3 model with thinking mode"
-    echo -e "${YELLOW}3) llama3.2:1b ${NC}(1.3GB) - Meta's smaller LLaMA model"
-    echo -e "${YELLOW}4) phi3:mini ${NC}(2.3GB) - Microsoft's Phi-3 mini model"
-    echo ""
-    
-    # Ask user for model choice
-    read -p "Select model (1-4) or press Enter for default [1]: " -n 1 -r
-    echo
-    
-    case $REPLY in
-        2)
-            MODEL_NAME="qwen3:8b"
-            MODEL_SIZE="5.2GB"
-            MODEL_DESC="Qwen 3 8B model"
-            ;;
-        3)
-            MODEL_NAME="llama3.2:1b"
-            MODEL_SIZE="1.3GB"
-            MODEL_DESC="LLaMA 3.2 1B model"
-            ;;
-        4)
-            MODEL_NAME="phi3:mini"
-            MODEL_SIZE="2.3GB"
-            MODEL_DESC="Phi-3 Mini model"
-            ;;
-        *)
-            MODEL_NAME="gemma3n:e2b"
-            MODEL_SIZE="5.6GB"
-            MODEL_DESC="Gemma 3n model"
-            ;;
-    esac
-    
-    echo -e "${BLUE}Selected: $MODEL_DESC ($MODEL_SIZE)${NC}"
-    echo ""
-    
-    # Ask user if they want to download now
-    read -p "Download $MODEL_DESC now? [y/N]: " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        # Wait for Ollama to be ready
-        echo -e "${YELLOW}⏳ Waiting for Ollama to be ready...${NC}"
-        sleep 5
-        
-        # Pull the model
-        echo -e "${YELLOW}📥 Downloading $MODEL_DESC ($MODEL_SIZE)...${NC}"
-        sudo -u ollama ollama pull $MODEL_NAME
-        
-        echo -e "${GREEN}✅ AI model ready${NC}"
-    else
-        echo -e "${YELLOW}⏭️ Model download skipped. You can download it later with:${NC}"
-        echo -e "${BLUE}robolog model pull $MODEL_NAME${NC}"
-        echo -e "${YELLOW}💡 Alternative models available:${NC}"
-        echo -e "${BLUE}robolog model pull gemma3n:e2b${NC} # Google Gemma 3n (5.6GB)"
-        echo -e "${BLUE}robolog model pull qwen3:8b${NC}     # Alibaba Qwen 3 (5.2GB)" 
-        echo -e "${BLUE}robolog model pull llama3.2:1b${NC}  # Meta LLaMA (1.3GB)"
-        echo -e "${BLUE}robolog model pull phi3:mini${NC}    # Microsoft Phi-3 (2.3GB)"
-    fi
-    
-    # Update the .env file with selected model
-    sed -i "s/MODEL_NAME=.*/MODEL_NAME=$MODEL_NAME/" $INSTALL_DIR/.env
 }
 
 # Main installation function
 main() {
-    # Check for command line arguments
-    # ✅ Moved argument parsing to the top of main() to ensure flags are
-    # processed before functions that rely on them (like setup_config) are called.
+    INSTALL_DASHBOARD=false
     SKIP_MODEL=false
     AUTO_YES=false
-    
+    CLI_MODEL_NAME=""
+    CLI_LANGUAGE=""
+    CLI_PLATFORM=""
+
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --skip-model)
-                SKIP_MODEL=true
-                shift
-                ;;
-            --yes|-y)
-                AUTO_YES=true
-                shift
-                ;;
-            --model)
-                # This will be used by setup_model if not running with --yes
-                CLI_MODEL_NAME="$2"
-                shift 2
-                ;;
-            --language)
-                CLI_LANGUAGE="$2"
-                shift 2
-                ;;
-            --platform)
-                CLI_PLATFORM="$2"
-                shift 2
-                ;;
+            --with-dashboard) INSTALL_DASHBOARD=true; shift ;;
+            --skip-model) SKIP_MODEL=true; shift ;;
+            --yes|-y) AUTO_YES=true; shift ;;
+            --model) CLI_MODEL_NAME="$2"; shift 2 ;;
+            --language) CLI_LANGUAGE="$2"; shift 2 ;;
+            --platform) CLI_PLATFORM="$2"; shift 2 ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo "Options:"
-                echo "  --skip-model        Skip AI model download"
-                echo "  --yes, -y           Automatically download model without prompting"
-                echo "  --model MODEL_NAME  Specify model to download (gemma3n:e2b, qwen3:8b, llama3.2:1b, phi3:mini)"
-                echo "  --language LANG     Specify language for AI responses (English, Spanish, French, German, Chinese, Japanese, etc.)"
-                echo "  --platform PLATFORM Specify webhook platform (discord, slack, teams, telegram, mattermost, rocketchat, generic)"
+                echo "  --with-dashboard    Install the optional Next.js web dashboard"
+                echo "  --skip-model        Skip AI model download prompt"
+                echo "  --yes, -y           Run in non-interactive mode with default settings"
+                echo "  --model MODEL_NAME  Specify model to download (e.g., llama3.2:1b)"
+                echo "  --language LANG     Specify language for AI responses (e.g., English)"
+                echo "  --platform PLATFORM Specify webhook platform (e.g., discord)"
                 echo "  --help, -h          Show this help message"
                 exit 0
                 ;;
             *)
-                echo "Unknown option: $1"
-                echo "Use --help for usage information"
-                exit 1
+                echo "Unknown option: $1"; echo "Use --help for usage information"; exit 1
                 ;;
         esac
     done
-    
+
+    if [[ "$AUTO_YES" != "true" ]]; then
+        read -p "Install the Web Dashboard (requires Nginx)? [y/N]: " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            INSTALL_DASHBOARD=true
+        fi
+    fi
+
     detect_os
     install_nodejs
     install_fluentbit
     install_ollama
+    if [[ "$INSTALL_DASHBOARD" = true ]]; then
+        install_nginx
+    fi
     setup_user
     setup_application
-    # ✅ This function will now correctly use the flags parsed above
     setup_config "$CLI_LANGUAGE" "$CLI_PLATFORM"
+    if [[ "$INSTALL_DASHBOARD" = true ]]; then
+        configure_nginx
+    fi
     configure_fluentbit
     create_services
     create_commands
-    
-    # ✅ This function will now correctly use the flags parsed above
     setup_model "$CLI_MODEL_NAME"
 
     echo -e "${GREEN}🎉 Robolog native installation completed successfully!${NC}"
-    echo -e "${BLUE}Benefits of native installation:${NC}"
-    echo -e "• ${GREEN}No Docker dependency${NC}"
-    echo -e "• ${GREEN}Better performance (no container overhead)${NC}"
-    echo -e "• ${GREEN}Direct system integration${NC}"
-    echo -e "• ${GREEN}Lower resource usage${NC}"
     echo ""
-    
-    # Check if model was downloaded
-    if [[ "$SKIP_MODEL" == "true" ]]; then
-        echo -e "${YELLOW}⚠️ Important: AI model not downloaded!${NC}"
-        echo -e "${BLUE}To complete setup, download a model:${NC}"
-        echo -e "• ${YELLOW}robolog model pull gemma3n:e2b${NC}  # Google Gemma 3n (5.6GB) - best quality"
-        echo -e "• ${YELLOW}robolog model pull qwen3:8b${NC}     # Alibaba Qwen 3 (5.2GB) - with thinking mode"
-        echo -e "• ${YELLOW}robolog model pull llama3.2:1b${NC}  # Meta LLaMA (1.3GB) - fastest"
-        echo -e "• ${YELLOW}robolog model pull phi3:mini${NC}    # Microsoft Phi-3 (2.3GB) - balanced"
+    if [[ "$INSTALL_DASHBOARD" = true ]]; then
+        echo -e "${BLUE}The Web Dashboard is installed! You can access it at:${NC}"
+        echo -e "${YELLOW}https://<your-server-ip>${NC}"
+        echo -e "${RED}(Note: It uses a self-signed SSL certificate, so your browser will show a warning. This is safe to accept for a demo.)${NC}"
         echo ""
     fi
-    
     echo -e "${BLUE}Next steps:${NC}"
     echo -e "1. Edit configuration: ${YELLOW}robolog config${NC}"
-    echo -e "2. Add your Discord webhook URL"
-    if [[ "$SKIP_MODEL" == "true" ]]; then
-        echo -e "3. Download AI model: ${YELLOW}robolog model pull gemma3n:e2b${NC}"
-        echo -e "4. Start the service: ${YELLOW}robolog start${NC}"
-        echo -e "5. Check status: ${YELLOW}robolog status${NC}"
-        echo -e "6. Test with: ${YELLOW}robolog test-errors${NC}"
-    else
-        echo -e "3. Start the service: ${YELLOW}robolog start${NC}"
-        echo -e "4. Check status: ${YELLOW}robolog status${NC}"
-        echo -e "5. Test with: ${YELLOW}robolog test-errors${NC}"
-    fi
+    echo -e "2. Add your Webhook URL to the .env file"
+    echo -e "3. Start the service: ${YELLOW}robolog start${NC}"
+    echo -e "4. Check status: ${YELLOW}robolog status${NC}"
+    echo -e "5. Test with: ${YELLOW}robolog test-errors${NC}"
     echo ""
-    echo -e "${BLUE}Native installation includes:${NC}"
-    echo -e "• ${YELLOW}Node.js${NC} - JavaScript runtime for analyzer"
-    echo -e "• ${YELLOW}Fluent Bit${NC} - Log collection and forwarding"
-    echo -e "• ${YELLOW}Ollama${NC} - Local AI model serving"
-    echo -e "• ${YELLOW}systemd services${NC} - Auto-start and management"
 }
-
-# This is now the interactive portion, called from main if not in auto-mode
-setup_interactive_config() {
-    # Ask for language preference
-    echo -e "${BLUE}Select your preferred language for AI notifications:${NC}"
-    echo -e "${YELLOW}1) English ${NC}[default]"
-    echo -e "${YELLOW}2) Spanish (Español)${NC}"
-    echo -e "${YELLOW}3) French (Français)${NC}"
-    echo -e "${YELLOW}4) German (Deutsch)${NC}"
-    echo -e "${YELLOW}5) Chinese (中文)${NC}"
-    echo -e "${YELLOW}6) Japanese (日本語)${NC}"
-    echo -e "${YELLOW}7) Portuguese (Português)${NC}"
-    echo -e "${YELLOW}8) Russian (Русский)${NC}"
-    echo -e "${YELLOW}9) Italian (Italiano)${NC}"
-    echo -e "${YELLOW}10) Other (specify)${NC}"
-    echo ""
-    
-    read -p "Select language (1-10) or press Enter for English [1]: " -n 2 -r
-    echo
-    
-    case $REPLY in
-        2) SELECTED_LANGUAGE="Spanish" ;;
-        3) SELECTED_LANGUAGE="French" ;;
-        4) SELECTED_LANGUAGE="German" ;;
-        5) SELECTED_LANGUAGE="Chinese" ;;
-        6) SELECTED_LANGUAGE="Japanese" ;;
-        7) SELECTED_LANGUAGE="Portuguese" ;;
-        8) SELECTED_LANGUAGE="Russian" ;;
-        9) SELECTED_LANGUAGE="Italian" ;;
-        10) read -p "Enter your preferred language: " SELECTED_LANGUAGE ;;
-        *) SELECTED_LANGUAGE="English" ;;
-    esac
-    
-    echo -e "${BLUE}Selected language: $SELECTED_LANGUAGE${NC}"
-    echo ""
-    
-    # Ask for webhook platform
-    echo -e "${BLUE}Select your webhook platform for notifications:${NC}"
-    echo -e "${YELLOW}1) Discord ${NC}[default]"
-    echo -e "${YELLOW}2) Slack${NC}"
-    echo -e "${YELLOW}3) Microsoft Teams${NC}"
-    echo -e "${YELLOW}4) Telegram${NC}"
-    echo -e "${YELLOW}5) Mattermost${NC}"
-    echo -e "${YELLOW}6) Rocket.Chat${NC}"
-    echo -e "${YELLOW}7) Generic Webhook${NC}"
-    echo ""
-    
-    read -p "Select platform (1-7) or press Enter for Discord [1]: " -n 1 -r
-    echo
-    
-    case $REPLY in
-        2) SELECTED_PLATFORM="slack" ;;
-        3) SELECTED_PLATFORM="teams" ;;
-        4) SELECTED_PLATFORM="telegram" ;;
-        5) SELECTED_PLATFORM="mattermost" ;;
-        6) SELECTED_PLATFORM="rocketchat" ;;
-        7) SELECTED_PLATFORM="generic" ;;
-        *) SELECTED_PLATFORM="discord" ;;
-    esac
-}
-
 
 # Run main installation
-main "$@" 
-
-# The original setup_config and setup_model are now refactored to be called
-# from main() and can handle both interactive and non-interactive modes.
-
-setup_config() {
-    local lang=${1:-"English"}
-    local platform=${2:-"discord"}
-
-    if [[ "$AUTO_YES" != "true" ]]; then
-        # Run interactive prompts if not in auto mode
-        setup_interactive_config
-        lang=$SELECTED_LANGUAGE
-        platform=$SELECTED_PLATFORM
-    fi
-    
-    # ... (the rest of the setup_config logic to write the .env file)
-    # This part now uses `lang` and `platform` set either by flags or prompts.
-}
-
-setup_model() {
-    local model_arg=${1:-"gemma3n:e2b"}
-    if [[ "$SKIP_MODEL" == "true" ]]; then
-        echo -e "${YELLOW}⏭️ Model download skipped (--skip-model flag)${NC}"
-        return
-    fi
-    
-    # ... (the rest of the setup_model logic)
-    # This part now uses `model_arg` set either by flag or prompt.
-}
+main "$@"
