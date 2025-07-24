@@ -123,6 +123,41 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => console.log(`Client disconnected. ID: ${socket.id}`));
 });
 
+// ✨ NEW: Endpoint to get detailed status and configuration for debugging.
+app.get('/status', (req, res) => {
+    try {
+        const statusReport = {
+            status: 'ok',
+            uptime: `${process.uptime().toFixed(2)} seconds`,
+            memoryUsage: process.memoryUsage(),
+            configuration: {
+                ollamaUrl: OLLAMA_URL,
+                model: MODEL,
+                language: LANGUAGE,
+                webhookPlatform: WEBHOOK_PLATFORM,
+                // For security, we only report if the webhook is set, not its value.
+                webhookSet: !!WEBHOOK_URL,
+                batchIntervalMs: BATCH_INTERVAL_MS,
+                batchSize: BATCH_SIZE,
+                deduplicationWindowMs: DEDUPLICATION_WINDOW_MS,
+            },
+            state: {
+                logBufferLength: logBuffer.length,
+                reportHistoryLength: reportHistory.length,
+                deduplicationCacheSize: deduplicationCache.size,
+            },
+            system: {
+                freeMemoryMb: Math.round(os.freemem() / 1024 / 1024),
+                diskReport: diskReport(),
+            }
+        };
+        res.status(200).json(statusReport);
+    } catch (error) {
+        console.error("Error generating status report:", error);
+        res.status(500).json({ status: 'error', message: 'Failed to generate status report.' });
+    }
+});
+
 app.post('/logs', (req, res) => {
     // Fluent Bit can send a single object or an array of objects.
     const newEntries = Array.isArray(req.body) ? req.body : [req.body];
