@@ -158,30 +158,29 @@ app.get('/status', (req, res) => {
     }
 });
 
+// In C:/dev/robolog/analyzer/analyzer.js
+
 app.post('/logs', (req, res) => {
     // Fluent Bit can send a single object or an array of objects.
     const newEntries = Array.isArray(req.body) ? req.body : [req.body];
 
     const acceptedSeverities = new Set(['CRITICAL', 'ERROR', 'WARNING']);
 
+    // ✨ NEW: Collect the logs that are actually added to the buffer in this request.
+    const addedLogsForNotification = [];
+
     for (const entry of newEntries) {
         const message = entry.log || '';
         const severity = categorizeLogLevel(message);
 
-        // ✅ BEST PRACTICE: Add a secondary "defense-in-depth" filter.
-        // Even though Fluent Bit should only send filtered logs, this ensures
-        // we only process logs that are genuinely important, preventing the
-        // AI model from being overwhelmed.
         if (acceptedSeverities.has(severity)) {
             const hash = generateLogHash(message);
 
             if (deduplicationCache.has(hash)) {
-                // It's a repeat error. Just increment the count and update the timestamp.
                 const cacheEntry = deduplicationCache.get(hash);
                 cacheEntry.count++;
                 cacheEntry.lastSeen = Date.now();
             } else {
-                // It's a new, unique error. Add it to the cache and the processing buffer.
                 const newLog = {
                     message: message,
                     container: entry.container_name || 'unknown',
@@ -190,11 +189,88 @@ app.post('/logs', (req, res) => {
                 };
                 deduplicationCache.set(hash, { count: 1, lastSeen: Date.now(), log: newLog });
                 logBuffer.push(newLog);
+
+                // ✨ NEW: Add to our collection for the immediate notification.
+                addedLogsForNotification.push(newLog);
             }
         }
     }
+
+    // ✨ NEW: If we added any new, unique logs, notify the UI immediately.
+    if (addedLogsForNotification.length > 0) {
+        console.log(`Notifying UI that processing has started for ${addedLogsForNotification.length} new logs.`);
+        io.emit('processing-started', {
+            count: addedLogsForNotification.length,
+            // Send just the message and container for a lightweight payload.
+            logs: addedLogsForNotification.map(l => ({ message: l.message, container: l.container }))
+        });
+    }
+
     res.status(200).send('OK');
 });
+
+// --- Returns the last N hours of error/critical logs for dashboard charting ---
+app.get('/errors', (req, res) => {
+    const HOURS = parseInt(req.query.hours || '12', 10);
+    const now = Date.now();
+    const since = now - HOURS * 60 * 60 * 1000;
+
+    // deduplicationCache has .log.time for all unique error logs; logBuffer may have some as well
+    // For dashboard accuracy, let's gather all from both (if you clear logBuffer, you may want to keep a separate history array)
+    let errorLogs = [];
+
+    // 1. From deduplicationCache (unique errors, last seen)
+    deduplicationCache.forEach((entry) => {
+        const log = entry.log;
+        const logTime = new Date(log.time).getTime();
+        const severity = categorizeLogLevel(log.message);
+        if (
+            (severity === "CRITICAL" || severity === "ERROR") &&
+            logTime >= since
+        ) {
+            errorLogs.push({
+                time: log.time,
+                message: log.message,
+                container: log.container,
+                severity,
+                count: entry.count,
+                lastSeen: entry.lastSeen
+            });
+        }
+    });
+
+    // 2. Optionally add from logBuffer if you want "pending" logs (remove if unnecessary)
+    errorLogs = errorLogs.concat(
+        logBuffer
+            .filter(
+                (log) =>
+                    (categorizeLogLevel(log.message) === "CRITICAL" ||
+                        categorizeLogLevel(log.message) === "ERROR") &&
+                    new Date(log.time).getTime() >= since
+            )
+            .map((log) => ({
+                time: log.time,
+                message: log.message,
+                container: log.container,
+                severity: categorizeLogLevel(log.message),
+                count: 1
+            }))
+    );
+
+    // Remove potential duplicates by (time, message, container)
+    const seen = new Set();
+    const deduped = [];
+    for (const log of errorLogs) {
+        const key = [log.time, log.message, log.container].join("||");
+        if (!seen.has(key)) {
+            deduped.push(log);
+            seen.add(key);
+        }
+    }
+
+    res.json(deduped);
+});
+
 
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', bufferSize: logBuffer.length });
