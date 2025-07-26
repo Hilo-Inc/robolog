@@ -260,7 +260,7 @@ The fastest way to try Robolog is by running all components with [Docker Compose
    ```
 
 5. **Test your setup:**
-   Trigger a test alert to verify notifications are working:
+   Trigger a test alert by going to https://localhost/ in your browser or:
 
    ```bash
    docker compose exec analyzer node /app/test-errors.js
