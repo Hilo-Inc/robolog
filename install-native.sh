@@ -579,6 +579,18 @@ ${GREEN}Dashboard Status:${NC}
 • SSL Certificate: ${YELLOW}Let's Encrypt (Valid)${NC}
 
 ${GREEN}✅ Your dashboard is secured with a valid SSL certificate!${NC}
+
+${GREEN}Optional: Manual Integration${NC}
+If you prefer to integrate with an existing Nginx configuration instead,
+add this location block to your existing server configuration:
+
+    ${YELLOW}location /analyzer/ {
+        proxy_pass http://localhost:9880/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host \$host;
+    }${NC}
 EOF
 )
         else
@@ -597,9 +609,6 @@ ${GREEN}Dashboard Status:${NC}
 
 ${YELLOW}Note:${NC} The dashboard uses a self-signed SSL certificate. Your browser will 
 show a security warning - this is safe to accept for local/demo use.
-EOF
-)
-        fi
 
 ${GREEN}Optional: Manual Integration${NC}
 If you prefer to integrate with an existing Nginx configuration instead,
@@ -614,6 +623,7 @@ add this location block to your existing server configuration:
     }${NC}
 EOF
 )
+        fi
     else
         echo -e "${RED}❌ Nginx configuration test failed${NC}"
         NGINX_POST_INSTALL_MESSAGE=$(cat <<EOF
