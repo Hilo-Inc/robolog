@@ -518,51 +518,47 @@ async function createSummaryPrompt(parsedLogs) {
         structuredLogs = structuredLogs.substring(0, MAX_PROMPT_LOG_CHARS) + "\n\n... (logs truncated due to length)";
     }
 
-    const prompt = `{
-            "role": "system",
-            "persona": "DevOps Assistant",
-            "goal": "Analyze structured logs, identify issues, and provide clear, actionable resolutions with command-line solutions where relevant in ${LANGUAGE}.",
-            "tone": "Clear, concise, and expert-level, focused on business-critical impact.",
-            "processing_instructions": {
-                "1": "Parse the logs and categorize entries by severity: CRITICAL/ERROR, WARNING, and INFO.",
-                "2": "Summarize each issue under appropriate headings in priority order.",
-                "3": "For each issue, identify affected service(s), system resource(s), or components.",
-                "4": "Map issues to their likely root causes and suggest shell commands or config changes to fix or diagnose them.",
-                "5": "Highlight the most urgent issues first — those that may impact uptime, data integrity, or customer experience."
-            },
-            "output_structure": {
-                "critical_issues": {
-                "label": "🚨 CRITICAL ISSUES",
-                "description": "Include errors or conditions that require immediate attention or could cause system downtime.",
-                "include_shell_commands": true
-                },
-                "warnings": {
-                "label": "⚠️ WARNINGS",
-                "description": "Include performance degradation or risk-prone conditions that should be addressed.",
-                "include_shell_commands": true
-                },
-                "summary_by_application": {
-                "label": "📊 SUMMARY BY APPLICATION",
-                "description": "Break down log issues by service or application name, summarizing severity and frequency of problems."
-                },
-                "recommended_actions": {
-                "label": "🔧 RECOMMENDED ACTIONS",
-                "description": "Provide specific steps to resolve the issues. Prefer shell commands, config file changes, or monitoring enhancements.",
-                "format": "Bullet points"
-                }
-            },
-            "style_guidelines": {
-                "conciseness": true,
-                "technical_accuracy": true,
-                "business_impact_priority": true,
-                "avoid_redundancy": true,
-                "use_terminal_commands": "Where appropriate, format shell commands in code blocks with short descriptions."
-            },
-            "notes": "Always analyze for each issue independently. If multiple critical issues are found, report them all. Use headers to clearly separate sections. Provide a structured analysis following the format above in ${LANGUAGE}.",
-            "logs": ${structuredLogs},
-            "system_resources": ${diskReport()},
-            "free_memory": ${Math.round(os.freemem() / 1024 / 1024)}MB"
-        }`;
+    const prompt = `You are a DevOps assistant. Analyze these structured logs and provide a clear, actionable summary with specific shell commands where relevant.
+
+INSTRUCTIONS:
+1. Parse the logs and categorize entries by severity: CRITICAL/ERROR, WARNING, and INFO
+2. Summarize each issue under appropriate headings in priority order
+3. For each issue, identify affected service(s), system resource(s), or components
+4. Map issues to their likely root causes and suggest shell commands or config changes to fix or diagnose them
+5. Highlight the most urgent issues first — those that may impact uptime, data integrity, or customer experience
+
+OUTPUT FORMAT:
+🚨 CRITICAL ISSUES
+- Include errors or conditions that require immediate attention or could cause system downtime
+- Include shell commands where helpful
+
+⚠️ WARNINGS
+- Include performance degradation or risk-prone conditions that should be addressed
+- Include shell commands where helpful
+
+📊 SUMMARY BY APPLICATION
+- Break down log issues by service or application name, summarizing severity and frequency of problems
+
+🔧 RECOMMENDED ACTIONS
+- Provide specific steps to resolve the issues
+- Prefer shell commands, config file changes, or monitoring enhancements
+- Format as bullet points
+
+GUIDELINES:
+- Be concise and technically accurate
+- Prioritize by business impact
+- Avoid redundancy
+- Use code blocks for terminal commands with short descriptions
+- Respond in ${LANGUAGE}
+
+STRUCTURED LOG DATA:
+${structuredLogs}
+
+SYSTEM RESOURCES:
+${diskReport()}
+Free memory: ${Math.round(os.freemem() / 1024 / 1024)}MB
+
+Provide a structured analysis following the format above in ${LANGUAGE}:`;
 
     return prompt;
 }
