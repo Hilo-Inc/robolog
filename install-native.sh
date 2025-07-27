@@ -322,7 +322,7 @@ setup_model() {
     sed -i "s/MODEL_NAME=.*/MODEL_NAME=$final_model_name/" "$INSTALL_DIR/.env"
 
     # Ask user if they want to download now, unless in auto-yes mode
-    if [[ "$AUTO_YES" == "true" ]] || { read -p "Download ${model_desc:-$final_model_name} now? [y/N]: " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ ]]; }; then
+    if [[ "$AUTO_YES" == "true" ]] || { read -p "Download ${model_desc:-$final_model_name} now? [Y/n]: " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ || -z "$REPLY" ]]; }; then
         echo -e "${YELLOW}⏳ Waiting for Ollama to be ready...${NC}"
         # ✅ BEST PRACTICE: Poll the Ollama service instead of using a fixed sleep.
         until sudo -u ollama ollama list > /dev/null 2>&1; do
