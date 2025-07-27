@@ -111,6 +111,113 @@ install_nginx() {
     echo -e "${GREEN}✅ Nginx installed${NC}"
 }
 
+# Install Certbot for Let's Encrypt SSL certificates
+install_certbot() {
+    echo -e "${YELLOW}📦 Installing Certbot...${NC}"
+
+    case $DISTRO in
+        "ubuntu"|"debian")
+            apt-get update
+            apt-get install -y snapd
+            snap install core
+            snap refresh core
+            snap install --classic certbot
+            ln -sf /snap/bin/certbot /usr/bin/certbot
+            ;;
+        "centos"|"rhel"|"fedora")
+            yum install -y epel-release
+            yum install -y certbot python3-certbot-nginx
+            ;;
+        "arch")
+            pacman -S --noconfirm certbot certbot-nginx
+            ;;
+        *)
+            echo -e "${RED}❌ Unsupported distribution for Certbot: $DISTRO${NC}"
+            exit 1
+            ;;
+    esac
+
+    echo -e "${GREEN}✅ Certbot installed${NC}"
+}
+
+# Obtain Let's Encrypt SSL certificate
+setup_letsencrypt() {
+    local domain="$1"
+    
+    echo -e "${YELLOW}🔒 Setting up Let's Encrypt SSL certificate for $domain...${NC}"
+    
+    # Validate domain format
+    if [[ ! "$domain" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$ ]]; then
+        echo -e "${RED}❌ Invalid domain format: $domain${NC}"
+        return 1
+    fi
+    
+    # Check if domain resolves to this server
+    local server_ip=$(curl -s ifconfig.me)
+    local domain_ip=$(dig +short "$domain" | tail -n1)
+    
+    if [[ "$server_ip" != "$domain_ip" ]]; then
+        echo -e "${YELLOW}⚠️ Warning: Domain $domain doesn't resolve to this server ($server_ip vs $domain_ip)${NC}"
+        if [[ "$AUTO_YES" != "true" ]]; then
+            read -p "Continue anyway? [y/N]: " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                return 1
+            fi
+        fi
+    fi
+    
+    # Stop nginx temporarily for standalone authentication
+    systemctl stop nginx 2>/dev/null || true
+    
+    # Obtain certificate using standalone method
+    if certbot certonly --standalone --non-interactive --agree-tos \
+        --email "admin@$domain" \
+        -d "$domain"; then
+        
+        echo -e "${GREEN}✅ SSL certificate obtained for $domain${NC}"
+        
+        # Set up auto-renewal
+        cat > /etc/systemd/system/certbot-renewal.service << EOF
+[Unit]
+Description=Certbot Renewal
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --nginx --quiet
+ExecStartPost=/bin/systemctl reload nginx
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+        cat > /etc/systemd/system/certbot-renewal.timer << EOF
+[Unit]
+Description=Run certbot renewal twice daily
+Requires=certbot-renewal.service
+
+[Timer]
+OnCalendar=*-*-* 00,12:00:00
+RandomizedDelaySec=3600
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+        systemctl daemon-reload
+        systemctl enable certbot-renewal.timer
+        systemctl start certbot-renewal.timer
+        
+        echo -e "${GREEN}✅ Auto-renewal configured${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ Failed to obtain SSL certificate${NC}"
+        return 1
+    fi
+}
+
 # Install Ollama
 install_ollama() {
     echo -e "${YELLOW}📦 Installing Ollama...${NC}"
@@ -388,6 +495,7 @@ EOF
 
 # Configure Nginx for the dashboard
 configure_nginx() {
+    local ssl_domain="$1"
     echo -e "${YELLOW}⚙️  Configuring Nginx...${NC}"
     # ✅ BEST PRACTICE: Define a clear, unique name for our config file.
     local NGINX_CONF_NAME="robolog-dashboard.conf"
@@ -419,11 +527,29 @@ configure_nginx() {
     # Remove default_server directive to avoid conflicts with existing nginx installations
     sed -i 's| default_server||g' "$FINAL_CONF_PATH"
 
-    # Copy self-signed SSL certs (your existing logic is good)
-    local DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
-    mkdir -p /etc/nginx/certs
-    cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" /etc/nginx/certs/
-    cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" /etc/nginx/certs/
+    # Configure SSL certificates
+    local ssl_configured=false
+    if [[ -n "$ssl_domain" ]] && [[ -f "/etc/letsencrypt/live/$ssl_domain/fullchain.pem" ]]; then
+        # Use Let's Encrypt certificates
+        echo -e "${YELLOW}🔒 Configuring Let's Encrypt SSL certificates...${NC}"
+        sed -i "s|server_name _;|server_name $ssl_domain;|g" "$FINAL_CONF_PATH"
+        sed -i "s|ssl_certificate /etc/nginx/certs/nginx-selfsigned.crt;|ssl_certificate /etc/letsencrypt/live/$ssl_domain/fullchain.pem;|g" "$FINAL_CONF_PATH"
+        sed -i "s|ssl_certificate_key /etc/nginx/certs/nginx-selfsigned.key;|ssl_certificate_key /etc/letsencrypt/live/$ssl_domain/privkey.pem;|g" "$FINAL_CONF_PATH"
+        
+        # Add additional Let's Encrypt recommended SSL settings
+        sed -i '/ssl_protocols/a\    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;\n    ssl_prefer_server_ciphers off;\n    ssl_session_timeout 10m;\n    ssl_session_cache shared:SSL:10m;\n    ssl_session_tickets off;\n    ssl_stapling on;\n    ssl_stapling_verify on;' "$FINAL_CONF_PATH"
+        
+        ssl_configured=true
+        echo -e "${GREEN}✅ Let's Encrypt SSL configured for $ssl_domain${NC}"
+    else
+        # Use self-signed SSL certs (fallback)
+        echo -e "${YELLOW}🔒 Using self-signed SSL certificates...${NC}"
+        local DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
+        mkdir -p /etc/nginx/certs
+        cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" /etc/nginx/certs/
+        cp "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" /etc/nginx/certs/
+        echo -e "${GREEN}✅ Self-signed SSL certificates configured${NC}"
+    fi
 
     echo -e "${GREEN}✅ Nginx configuration for Robolog has been created at:${NC}"
     echo -e "${YELLOW}$FINAL_CONF_PATH${NC}"
@@ -435,7 +561,28 @@ configure_nginx() {
     # Test nginx configuration
     if nginx -t; then
         echo -e "${GREEN}✅ Nginx configuration test passed${NC}"
-        NGINX_POST_INSTALL_MESSAGE=$(cat <<EOF
+        echo -e "${YELLOW}🔄 Reloading Nginx to apply new configuration...${NC}"
+        systemctl reload nginx
+        echo -e "${GREEN}✅ Nginx reloaded successfully${NC}"
+        if [[ "$ssl_configured" == "true" ]]; then
+            NGINX_POST_INSTALL_MESSAGE=$(cat <<EOF
+
+${BLUE}-------------------------------------------------------------------${NC}
+${GREEN}✅ Robolog Dashboard Successfully Configured${NC}
+${BLUE}-------------------------------------------------------------------${NC}
+The Robolog dashboard has been automatically enabled and configured in Nginx.
+
+${GREEN}Dashboard Status:${NC}
+• Configuration: ${YELLOW}$FINAL_CONF_PATH${NC}
+• Enabled at: ${YELLOW}$NGINX_ENABLED_DIR/$NGINX_CONF_NAME${NC}
+• Access URL: ${YELLOW}https://$ssl_domain${NC}
+• SSL Certificate: ${YELLOW}Let's Encrypt (Valid)${NC}
+
+${GREEN}✅ Your dashboard is secured with a valid SSL certificate!${NC}
+EOF
+)
+        else
+            NGINX_POST_INSTALL_MESSAGE=$(cat <<EOF
 
 ${BLUE}-------------------------------------------------------------------${NC}
 ${GREEN}✅ Robolog Dashboard Successfully Configured${NC}
@@ -446,9 +593,13 @@ ${GREEN}Dashboard Status:${NC}
 • Configuration: ${YELLOW}$FINAL_CONF_PATH${NC}
 • Enabled at: ${YELLOW}$NGINX_ENABLED_DIR/$NGINX_CONF_NAME${NC}
 • Access URL: ${YELLOW}https://<your-server-ip>${NC}
+• SSL Certificate: ${YELLOW}Self-signed${NC}
 
 ${YELLOW}Note:${NC} The dashboard uses a self-signed SSL certificate. Your browser will 
 show a security warning - this is safe to accept for local/demo use.
+EOF
+)
+        fi
 
 ${GREEN}Optional: Manual Integration${NC}
 If you prefer to integrate with an existing Nginx configuration instead,
@@ -625,6 +776,35 @@ case "$1" in
             *) echo "Usage: robolog model {pull|list} [model_name]" ;;
         esac
         ;;
+    ssl)
+        case "$2" in
+            "renew") 
+                echo "🔄 Renewing SSL certificates..."
+                certbot renew --nginx
+                systemctl reload nginx
+                echo "✅ SSL certificates renewed"
+                ;;
+            "status")
+                echo "📋 SSL Certificate Status:"
+                certbot certificates
+                ;;
+            "setup")
+                if [[ -z "$3" ]]; then
+                    echo "Usage: robolog ssl setup <domain>"
+                    exit 1
+                fi
+                echo "🔒 Setting up SSL certificate for $3..."
+                certbot --nginx -d "$3"
+                echo "✅ SSL certificate setup completed"
+                ;;
+            *) 
+                echo "Usage: robolog ssl {renew|status|setup} [domain]"
+                echo "  renew  - Renew all certificates"
+                echo "  status - Show certificate information"
+                echo "  setup  - Setup certificate for new domain"
+                ;;
+        esac
+        ;;
     update)
         echo "🔄 Updating Robolog..."
         cd /tmp
@@ -649,7 +829,7 @@ case "$1" in
         echo "💡 To remove Ollama: curl -fsSL https://ollama.ai/install.sh | sh -s -- --uninstall"
         ;;
     *)
-        echo "Usage: robolog {start|stop|restart|status|logs|test-errors|config|model|update|uninstall}"
+        echo "Usage: robolog {start|stop|restart|status|logs|test-errors|config|model|ssl|update|uninstall}"
         echo ""
         echo "Log options:"
         echo "  robolog logs              - View all service logs"
@@ -658,6 +838,11 @@ case "$1" in
         echo "  robolog logs fluent-bit   - View Fluent Bit logs only"
         echo "  robolog logs nginx        - View Nginx logs only"
         echo "  robolog logs ollama       - View Ollama logs only"
+        echo ""
+        echo "SSL options:"
+        echo "  robolog ssl renew         - Renew all SSL certificates"
+        echo "  robolog ssl status        - Show certificate information"
+        echo "  robolog ssl setup DOMAIN  - Setup certificate for new domain"
         exit 1
         ;;
 esac
@@ -674,6 +859,7 @@ main() {
     CLI_MODEL_NAME=""
     CLI_LANGUAGE=""
     CLI_PLATFORM=""
+    SSL_DOMAIN=""
     NGINX_POST_INSTALL_MESSAGE=""
 
     while [[ $# -gt 0 ]]; do
@@ -684,10 +870,12 @@ main() {
             --model) CLI_MODEL_NAME="$2"; shift 2 ;;
             --language) CLI_LANGUAGE="$2"; shift 2 ;;
             --platform) CLI_PLATFORM="$2"; shift 2 ;;
+            --ssl-domain) SSL_DOMAIN="$2"; INSTALL_DASHBOARD=true; shift 2 ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo "Options:"
                 echo "  --with-dashboard    Install the optional Next.js web dashboard"
+                echo "  --ssl-domain DOMAIN Get Let's Encrypt SSL certificate for domain (implies --with-dashboard)"
                 echo "  --skip-model        Skip AI model download prompt"
                 echo "  --yes, -y           Run in non-interactive mode with default settings"
                 echo "  --model MODEL_NAME  Specify model to download (e.g., llama3.2:1b)"
@@ -732,12 +920,18 @@ main() {
     install_ollama
     if [[ "$INSTALL_DASHBOARD" = true ]]; then
         install_nginx
+        if [[ -n "$SSL_DOMAIN" ]]; then
+            install_certbot
+        fi
     fi
     setup_user
     setup_application
     setup_config "$CLI_LANGUAGE" "$CLI_PLATFORM"
     if [[ "$INSTALL_DASHBOARD" = true ]]; then
-        configure_nginx
+        if [[ -n "$SSL_DOMAIN" ]]; then
+            setup_letsencrypt "$SSL_DOMAIN"
+        fi
+        configure_nginx "$SSL_DOMAIN"
     fi
     configure_fluentbit
     create_services
