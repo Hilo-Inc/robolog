@@ -140,6 +140,8 @@ app.get('/status', (req, res) => {
                 batchIntervalMs: BATCH_INTERVAL_MS,
                 batchSize: BATCH_SIZE,
                 deduplicationWindowMs: DEDUPLICATION_WINDOW_MS,
+                platformLimits: PLATFORM_LIMITS,
+                currentPlatformLimit: PLATFORM_LIMITS[WEBHOOK_PLATFORM?.toLowerCase()] || PLATFORM_LIMITS.generic,
             },
             state: {
                 logBufferLength: logBuffer.length,
@@ -327,6 +329,83 @@ Your detailed explanation:`;
     res.status(200).json({ details });
 });
 
+// ✨ NEW: Endpoint to test message chunking for different platforms
+app.post('/test-chunking', (req, res) => {
+    const { message, platform } = req.body;
+    if (!message) {
+        return res.status(400).send('Missing "message" in request body.');
+    }
+
+    const testPlatform = platform || WEBHOOK_PLATFORM;
+    const platformKey = testPlatform.toLowerCase();
+    const limits = PLATFORM_LIMITS[platformKey] || PLATFORM_LIMITS.generic;
+    
+    const chunks = splitMessage(message, limits.maxChars);
+    const payloads = formatWebhookPayload(message, testPlatform);
+    
+    res.status(200).json({
+        platform: testPlatform,
+        originalLength: message.length,
+        characterLimit: limits.maxChars,
+        chunkCount: chunks.length,
+        chunks: chunks,
+        payloads: payloads,
+        wouldTruncate: message.length > limits.maxChars
+    });
+});
+
+// ✨ NEW: Endpoint to generate test messages for webhook testing
+app.post('/generate-realistic-errors', (req, res) => {
+    const testMessage = `📄 **Raw Logs in this Batch:**
+\`\`\`
+[14:23:15] [nginx] ERROR: Connection refused to backend server 192.168.1.100:3000
+[14:23:16] [app] CRITICAL: Database connection pool exhausted - max connections: 50
+[14:23:17] [system] WARNING: High memory usage detected: 89% (7.1GB/8GB)
+[14:23:18] [nginx] ERROR: SSL certificate expired for domain example.com
+[14:23:19] [app] ERROR: Failed to process payment for user ID 12345 - Stripe API timeout
+[14:23:20] [system] CRITICAL: Disk space critically low: 95% full (/var/log - 50MB remaining)
+[14:23:21] [app] WARNING: Redis connection latency high: 2.5s average
+[14:23:22] [nginx] ERROR: Rate limit exceeded for IP 203.0.113.42 (100 req/min)
+[14:23:23] [app] CRITICAL: Authentication service unreachable - all logins failing
+[14:23:24] [system] ERROR: Network interface eth0 experiencing packet loss: 15%
+\`\`\`
+
+🤖 **AI Log Analysis (${LANGUAGE})**:
+🚨 **CRITICAL ISSUES**
+- **Database Connection Crisis**: Connection pool completely exhausted (50/50 connections used). This will block all database operations and cause application failures.
+- **Authentication System Down**: Complete authentication service outage is preventing all user logins and access.
+- **Storage Emergency**: Disk space at 95% capacity with only 50MB remaining in /var/log. System may crash when logs fill remaining space.
+
+⚠️ **WARNINGS**  
+- **Memory Pressure**: System memory at 89% usage (7.1GB/8GB) - approaching critical threshold
+- **Performance Degradation**: Redis connection latency at 2.5s average indicates serious performance issues
+- **Network Issues**: 15% packet loss on primary network interface affecting connectivity
+
+📊 **SUMMARY BY APPLICATION**
+**NGINX**: Multiple critical infrastructure failures including backend connectivity and SSL certificate expiration
+**APPLICATION**: Database and payment processing failures, authentication service dependency issues  
+**SYSTEM**: Resource exhaustion across memory, disk, and network infrastructure
+
+🔧 **RECOMMENDED ACTIONS**
+1. **IMMEDIATE**: Increase database connection pool limit and restart application services
+2. **URGENT**: Free disk space by rotating/compressing old logs, add monitoring alerts at 80% threshold  
+3. **HIGH PRIORITY**: Investigate authentication service outage and implement fallback mechanisms
+4. **CRITICAL**: Renew SSL certificate for example.com domain immediately
+5. **MONITOR**: Set up automated alerts for memory usage >85%, network packet loss >5%
+6. **OPTIMIZE**: Review Redis performance and consider connection pooling improvements
+
+This analysis indicates a cascading infrastructure failure requiring immediate attention to prevent complete system outage.`;
+
+    const platform = req.body.platform || WEBHOOK_PLATFORM;
+    
+    res.status(200).json({
+        message: testMessage,
+        length: testMessage.length,
+        platform: platform,
+        suggestion: `Use the /test-chunking endpoint to see how this message would be split for ${platform}.`
+    });
+});
+
 
 
 server.listen(PORT, () => {
@@ -505,42 +584,186 @@ async function summarizeWithPrompt(prompt) {
     }
 }
 
-function formatWebhookPayload(message, platform) {
-    const truncatedMessage = message.slice(0, 3900);
+// Platform-specific character limits
+// Can be overridden via environment variables (e.g., DISCORD_MAX_CHARS=1500)
+const PLATFORM_LIMITS = {
+    discord: { maxChars: parseInt(process.env.DISCORD_MAX_CHARS) || 2000 },
+    slack: { maxChars: parseInt(process.env.SLACK_MAX_CHARS) || 4000 },
+    teams: { maxChars: parseInt(process.env.TEAMS_MAX_CHARS) || 4000 },
+    telegram: { maxChars: parseInt(process.env.TELEGRAM_MAX_CHARS) || 4096 },
+    mattermost: { maxChars: parseInt(process.env.MATTERMOST_MAX_CHARS) || 4000 },
+    rocketchat: { maxChars: parseInt(process.env.ROCKETCHAT_MAX_CHARS) || 5000 },
+    generic: { maxChars: parseInt(process.env.GENERIC_MAX_CHARS) || 2000 }
+};
 
-    switch (platform.toLowerCase()) {
-        case 'discord':
-            return { content: truncatedMessage.slice(0, 1900) };
-        case 'slack':
-            return { text: truncatedMessage, mrkdwn: true, username: "Robolog", icon_emoji: ":robot_face:" };
-        case 'teams':
-            return { "@type": "MessageCard", "@context": "http://schema.org/extensions", "themeColor": "0076D7", "summary": "Robolog Alert", "sections": [{ "activityTitle": "🤖 Robolog Alert", "activitySubtitle": `AI Log Analysis (${LANGUAGE})`, "text": truncatedMessage, "markdown": true }] };
-        case 'telegram':
-            return { text: truncatedMessage, parse_mode: "Markdown", disable_web_page_preview: true };
-        case 'mattermost':
-            return { text: truncatedMessage, username: "Robolog", icon_emoji: ":robot_face:" };
-        case 'rocketchat':
-            return { text: truncatedMessage, username: "Robolog", emoji: ":robot_face:" };
-        default:
-            return { message: truncatedMessage, platform: "robolog", timestamp: new Date().toISOString(), language: LANGUAGE, source: "ai-log-analysis" };
+/**
+ * Splits a message into chunks that fit within platform limits
+ * @param {string} message - The full message to split
+ * @param {number} maxChars - Maximum characters per chunk
+ * @param {string} separator - Separator to add between chunks
+ * @returns {Array<string>} Array of message chunks
+ */
+function splitMessage(message, maxChars, separator = '\n---\n') {
+    if (message.length <= maxChars) {
+        return [message];
     }
+
+    const chunks = [];
+    let currentChunk = '';
+    const lines = message.split('\n');
+    
+    for (const line of lines) {
+        // If adding this line would exceed the limit
+        if (currentChunk.length + line.length + 1 > maxChars) {
+            if (currentChunk) {
+                chunks.push(currentChunk.trim());
+                currentChunk = '';
+            }
+            
+            // If a single line is too long, split it at word boundaries
+            if (line.length > maxChars) {
+                const words = line.split(' ');
+                let linePart = '';
+                
+                for (const word of words) {
+                    if (linePart.length + word.length + 1 > maxChars) {
+                        if (linePart) {
+                            chunks.push(linePart.trim());
+                            linePart = word;
+                        } else {
+                            // Single word longer than limit, force split
+                            chunks.push(word.substring(0, maxChars - 3) + '...');
+                            linePart = '...' + word.substring(maxChars - 3);
+                        }
+                    } else {
+                        linePart += (linePart ? ' ' : '') + word;
+                    }
+                }
+                if (linePart) {
+                    currentChunk = linePart;
+                }
+            } else {
+                currentChunk = line;
+            }
+        } else {
+            currentChunk += (currentChunk ? '\n' : '') + line;
+        }
+    }
+    
+    if (currentChunk) {
+        chunks.push(currentChunk.trim());
+    }
+    
+    return chunks;
 }
+
+function formatWebhookPayload(message, platform) {
+    const platformKey = platform.toLowerCase();
+    const limits = PLATFORM_LIMITS[platformKey] || PLATFORM_LIMITS.generic;
+    
+    // Split message into chunks if needed
+    const chunks = splitMessage(message, limits.maxChars);
+    
+    return chunks.map((chunk, index) => {
+        const isMultiPart = chunks.length > 1;
+        const partInfo = isMultiPart ? ` (Part ${index + 1}/${chunks.length})` : '';
+        
+        switch (platformKey) {
+            case 'discord':
+                return { content: chunk + partInfo };
+            case 'slack':
+                return { 
+                    text: chunk + partInfo, 
+                    mrkdwn: true, 
+                    username: "Robolog", 
+                    icon_emoji: ":robot_face:" 
+                };
+            case 'teams':
+                return { 
+                    "@type": "MessageCard", 
+                    "@context": "http://schema.org/extensions", 
+                    "themeColor": "0076D7", 
+                    "summary": "Robolog Alert" + partInfo, 
+                    "sections": [{ 
+                        "activityTitle": "🤖 Robolog Alert" + partInfo, 
+                        "activitySubtitle": `AI Log Analysis (${LANGUAGE})`, 
+                        "text": chunk, 
+                        "markdown": true 
+                    }] 
+                };
+            case 'telegram':
+                return { 
+                    text: chunk + partInfo, 
+                    parse_mode: "Markdown", 
+                    disable_web_page_preview: true 
+                };
+            case 'mattermost':
+                return { 
+                    text: chunk + partInfo, 
+                    username: "Robolog", 
+                    icon_emoji: ":robot_face:" 
+                };
+            case 'rocketchat':
+                return { 
+                    text: chunk + partInfo, 
+                    username: "Robolog", 
+                    emoji: ":robot_face:" 
+                };
+            default:
+                return { 
+                    message: chunk + partInfo, 
+                    platform: "robolog", 
+                    timestamp: new Date().toISOString(), 
+                    language: LANGUAGE, 
+                    source: "ai-log-analysis" 
+                };
+        }
+    });
+}
+
+
 
 async function sendWebhook(message) {
     if (!WEBHOOK_URL) return;
+    
     try {
-        const payload = formatWebhookPayload(message, WEBHOOK_PLATFORM);
-        const response = await fetch(WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-            console.error(`Webhook failed: ${response.status} ${response.statusText}`);
-            const errorBody = await response.text();
-            console.error(`Error details: ${errorBody}`);
+        // Get array of message chunks (or single message if under limit)
+        const payloads = formatWebhookPayload(message, WEBHOOK_PLATFORM);
+        
+        console.log(`Sending ${payloads.length} webhook message(s) to ${WEBHOOK_PLATFORM}`);
+        
+        // Send each chunk with a small delay to avoid rate limiting
+        for (let i = 0; i < payloads.length; i++) {
+            const payload = payloads[i];
+            
+            try {
+                const response = await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    console.error(`Webhook part ${i + 1}/${payloads.length} failed: ${response.status} ${response.statusText}`);
+                    const errorBody = await response.text();
+                    console.error(`Error details: ${errorBody}`);
+                } else {
+                    console.log(`✅ Webhook part ${i + 1}/${payloads.length} sent successfully`);
+                }
+                
+                // Add delay between messages to avoid rate limiting (except for last message)
+                if (i < payloads.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                
+            } catch (error) {
+                console.error(`Error sending webhook part ${i + 1}/${payloads.length}:`, error);
+            }
         }
+        
     } catch (error) {
         console.error('Webhook error:', error);
     }
 }
+
+
