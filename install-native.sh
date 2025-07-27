@@ -416,6 +416,8 @@ configure_nginx() {
     sed -i 's|http://analyzer:9880|http://localhost:9880|g' "$FINAL_CONF_PATH"
     sed -i 's|access_log /dev/stdout;|access_log /var/log/nginx/robolog-access.log;|g' "$FINAL_CONF_PATH"
     sed -i 's|error_log /dev/stderr;|error_log /var/log/nginx/robolog-error.log;|g' "$FINAL_CONF_PATH"
+    # Remove default_server directive to avoid conflicts with existing nginx installations
+    sed -i 's| default_server||g' "$FINAL_CONF_PATH"
 
     # Copy self-signed SSL certs (your existing logic is good)
     local DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
@@ -426,40 +428,58 @@ configure_nginx() {
     echo -e "${GREEN}✅ Nginx configuration for Robolog has been created at:${NC}"
     echo -e "${YELLOW}$FINAL_CONF_PATH${NC}"
 
-    # ✅ BEST PRACTICE: Do NOT automatically enable the site.
-    # Instead, provide clear instructions for the user to do it themselves.
-    # This is stored in a global variable to be displayed at the end of the script.
-    NGINX_POST_INSTALL_MESSAGE=$(cat <<EOF
+    # Automatically enable the site since the user explicitly chose to install the dashboard
+    echo -e "${YELLOW}⚙️ Enabling the Robolog dashboard site...${NC}"
+    ln -sf "$FINAL_CONF_PATH" "$NGINX_ENABLED_DIR/$NGINX_CONF_NAME"
+    
+    # Test nginx configuration
+    if nginx -t; then
+        echo -e "${GREEN}✅ Nginx configuration test passed${NC}"
+        NGINX_POST_INSTALL_MESSAGE=$(cat <<EOF
 
 ${BLUE}-------------------------------------------------------------------${NC}
-${YELLOW}ACTION REQUIRED: Enable the Robolog Dashboard in Nginx${NC}
+${GREEN}✅ Robolog Dashboard Successfully Configured${NC}
 ${BLUE}-------------------------------------------------------------------${NC}
-The Robolog dashboard configuration has been created but is not yet active.
-You have two options:
+The Robolog dashboard has been automatically enabled and configured in Nginx.
 
-${GREEN}OPTION 1: Enable as a new, separate site (easiest method)${NC}
-Run this command to activate the site, then test your Nginx config:
+${GREEN}Dashboard Status:${NC}
+• Configuration: ${YELLOW}$FINAL_CONF_PATH${NC}
+• Enabled at: ${YELLOW}$NGINX_ENABLED_DIR/$NGINX_CONF_NAME${NC}
+• Access URL: ${YELLOW}https://<your-server-ip>${NC}
 
-    ${YELLOW}sudo ln -s $FINAL_CONF_PATH $NGINX_ENABLED_DIR/${NGINX_CONF_NAME}${NC}
-    ${YELLOW}sudo nginx -t && sudo systemctl restart nginx${NC}
+${YELLOW}Note:${NC} The dashboard uses a self-signed SSL certificate. Your browser will 
+show a security warning - this is safe to accept for local/demo use.
 
-${GREEN}OPTION 2: Manually merge into your existing website\'s config${NC}
-If you are already running a website on this server, add the following
-'location' block inside your existing 'server { ... }' block:
+${GREEN}Optional: Manual Integration${NC}
+If you prefer to integrate with an existing Nginx configuration instead,
+add this location block to your existing server configuration:
 
-    ${YELLOW}# --- Robolog WebSocket proxy (add this to your existing config) ---
-    location /analyzer/ {
+    ${YELLOW}location /analyzer/ {
         proxy_pass http://localhost:9880/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "Upgrade";
         proxy_set_header Host \$host;
     }${NC}
-
-After adding the block, test and restart Nginx:
-    ${YELLOW}sudo nginx -t && sudo systemctl restart nginx${NC}
 EOF
 )
+    else
+        echo -e "${RED}❌ Nginx configuration test failed${NC}"
+        NGINX_POST_INSTALL_MESSAGE=$(cat <<EOF
+
+${BLUE}-------------------------------------------------------------------${NC}
+${RED}⚠️ Nginx Configuration Issue Detected${NC}
+${BLUE}-------------------------------------------------------------------${NC}
+The Robolog dashboard configuration was created but there may be an issue
+with your Nginx setup. Please check your Nginx configuration manually.
+
+${GREEN}To troubleshoot:${NC}
+1. Test configuration: ${YELLOW}sudo nginx -t${NC}
+2. Check enabled site: ${YELLOW}ls -la $NGINX_ENABLED_DIR/$NGINX_CONF_NAME${NC}
+3. Review config file: ${YELLOW}sudo cat $FINAL_CONF_PATH${NC}
+EOF
+)
+    fi
 }
 
 
@@ -564,13 +584,27 @@ case "$1" in
         systemctl status robolog-analyzer --no-pager -l
         systemctl status fluent-bit --no-pager -l
         systemctl status ollama --no-pager -l
+        # Check if dashboard service exists and show its status
+        if systemctl list-unit-files robolog-dashboard.service &>/dev/null; then
+            systemctl status robolog-dashboard --no-pager -l
+            systemctl status nginx --no-pager -l
+        fi
         ;;
     logs)
         case "$2" in
             "analyzer") journalctl -u robolog-analyzer -f ;;
+            "dashboard") journalctl -u robolog-dashboard -f ;;
             "fluent-bit") journalctl -u fluent-bit -f ;;
             "ollama") journalctl -u ollama -f ;;
-            *) journalctl -u robolog-analyzer -u fluent-bit -u ollama -f ;;
+            "nginx") journalctl -u nginx -f ;;
+            *) 
+                # Include dashboard logs if the service exists
+                if systemctl list-unit-files robolog-dashboard.service &>/dev/null; then
+                    journalctl -u robolog-analyzer -u robolog-dashboard -u fluent-bit -u ollama -u nginx -f
+                else
+                    journalctl -u robolog-analyzer -u fluent-bit -u ollama -f
+                fi
+                ;;
         esac
         ;;
     test-errors)
@@ -616,6 +650,14 @@ case "$1" in
         ;;
     *)
         echo "Usage: robolog {start|stop|restart|status|logs|test-errors|config|model|update|uninstall}"
+        echo ""
+        echo "Log options:"
+        echo "  robolog logs              - View all service logs"
+        echo "  robolog logs analyzer     - View analyzer logs only"
+        echo "  robolog logs dashboard    - View dashboard logs only (if installed)"
+        echo "  robolog logs fluent-bit   - View Fluent Bit logs only"
+        echo "  robolog logs nginx        - View Nginx logs only"
+        echo "  robolog logs ollama       - View Ollama logs only"
         exit 1
         ;;
 esac
