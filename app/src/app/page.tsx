@@ -86,14 +86,39 @@ function parseReportForTable(report: string, index: number): ParsedReport {
 
 
 export default function DashboardPage() {
-    const [reports, setReports] = useState<string[]>([]);
+    // ✨ NEW: Initialize state from localStorage on the client side.
+    const [reports, setReports] = useState<string[]>(() => {
+        // This function only runs on the initial render.
+        // It's important to check for `window` to avoid errors during server-side rendering.
+        if (typeof window === 'undefined') {
+            return [];
+        }
+        try {
+            const savedReports = window.localStorage.getItem('robolog-reports');
+            // If reports are found in localStorage, parse and return them.
+            return savedReports ? JSON.parse(savedReports) : [];
+        } catch (error) {
+            // If parsing fails, log the error and return an empty array.
+            console.error("Failed to parse reports from localStorage", error);
+            return [];
+        }
+    });
     const [status, setStatus] = useState("Not connected");
     const [detailedReport, setDetailedReport] = useState<string | null>(null);
     const [selectedReport, setSelectedReport] = useState<ParsedReport | null>(null);
-    // ✨ NEW: State for the intermediate processing status.
     const [processingStatus, setProcessingStatus] = useState<string | null>(null);
     const [modelName, setModelName] = useState<string>("...");
     const [errorLogs, setErrorLogs] = useState<any[]>([]);
+
+    // ✨ NEW: Persist reports to localStorage whenever they change.
+    useEffect(() => {
+        try {
+            // This effect runs every time the `reports` state is updated.
+            window.localStorage.setItem('robolog-reports', JSON.stringify(reports));
+        } catch (error) {
+            console.error("Failed to save reports to localStorage", error);
+        }
+    }, [reports]);
 
     useEffect(() => {
         fetch('/analyzer/errors?hours=12')
@@ -110,24 +135,28 @@ export default function DashboardPage() {
             .catch(() => setModelName('unknown'));
     }, []);
 
-    // Fetch initial reports
+    // ✅ MODIFIED: Fetch initial reports only if localStorage is empty.
     useEffect(() => {
-        const fetchReports = async () => {
-            setStatus("Fetching reports...");
-            try {
-                const response = await fetch('/api/reports');
-                const data = await response.json();
-                if (Array.isArray(data)) {
-                    setReports(data);
+        // This check ensures we don't overwrite reports loaded from localStorage.
+        if (reports.length === 0) {
+            const fetchReports = async () => {
+                setStatus("Fetching reports...");
+                try {
+                    const response = await fetch('/api/reports');
+                    const data = await response.json();
+                    if (Array.isArray(data)) {
+                        setReports(data);
+                    }
+                    setStatus("Connected to Analyzer");
+                } catch (error) {
+                    console.error("Failed to fetch initial reports:", error);
+                    setStatus("Failed to connect");
                 }
-                setStatus("Connected to Analyzer");
-            } catch (error) {
-                console.error("Failed to fetch initial reports:", error);
-                setStatus("Failed to connect");
-            }
-        };
-        fetchReports();
-    }, []);
+            };
+            fetchReports();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // This effect should only run once on mount.
 
     // Setup WebSocket
     useEffect(() => {
@@ -143,15 +172,14 @@ export default function DashboardPage() {
             setStatus(`Connection Error: Is the analyzer running?`);
         });
 
-        // ✨ NEW: Listen for the "processing-started" event from the analyzer.
         socket.on('processing-started', (data: { count: number, logs: { message: string, container: string }[] }) => {
             const logSnippets = data.logs.map(log => `- [${log.container}] ${log.message.substring(0, 80)}...`).join('\n');
             setProcessingStatus(`🤖 Analyzer has received ${data.count} new error(s) and is generating a report. This may take a moment...\n\nLogs received:\n${logSnippets}`);
         });
 
         socket.on("new-summary", (newReport: string) => {
+            // ✅ This update will trigger the localStorage persistence effect.
             setReports(prev => [newReport, ...prev]);
-            // ✨ NEW: Clear the processing status once the final report arrives.
             setProcessingStatus(null);
         });
 
@@ -161,28 +189,6 @@ export default function DashboardPage() {
     }, []);
 
     const parsedReports = reports.map(parseReportForTable);
-
-    // Get buckets for the last 12 hours
-    // const buckets = getLast12HoursBuckets();
-    // const errorPoints = buckets.map(b => ({
-    //     hour: b.hour,
-    //     count: 0,
-    //     reports: []
-    // }));
-    //
-    // parsedReports.forEach(r => {
-    //     if (r.topSeverity === "ERROR" || r.topSeverity === "CRITICAL") {
-    //         const hourISO = parseTimeToHourISO(r.time);
-    //         const bucketIdx = buckets.findIndex(b => b.iso === hourISO);
-    //         if (bucketIdx !== -1) {
-    //             errorPoints[bucketIdx].count++;
-    //             // @ts-ignore
-    //             errorPoints[bucketIdx].reports.push(r);
-    //         }
-    //     }
-    // });
-
-// At the top, after fetching errorLogs (which is set from /analyzer/errors?hours=12):
 
     const buckets = getLast12HoursBuckets();
 
@@ -201,7 +207,6 @@ export default function DashboardPage() {
         }
     }
 
-// Now, for the chart:
     const errorPoints = chartData.map(b => ({
         hour: b.hour,
         count: b.logs.length,
@@ -211,7 +216,6 @@ export default function DashboardPage() {
 
     return (
         <>
-            {/* ✨ NEW: Display the processing status message when it exists. */}
             {processingStatus && (
                 <Card className="mb-4 bg-blue-900/50 border-blue-500">
                     <CardHeader>
