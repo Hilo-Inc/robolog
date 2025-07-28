@@ -87,7 +87,10 @@ class AnalysisQueue {
         this.queue.push(queueItem);
         this.sortQueue();
         
-        console.log(`Queued batch ${batchHash} (priority: ${priority}, queue size: ${this.queue.length})`);
+        // Only log high-priority or large queues to reduce noise
+        if (priority === 'critical' || this.queue.length > 10) {
+            console.log(`Queued batch ${batchHash} (priority: ${priority}, queue size: ${this.queue.length})`);
+        }
         
         // Start processing if not already running
         this.startProcessing();
@@ -128,7 +131,10 @@ class AnalysisQueue {
             // Throttling: ensure minimum interval between processing
             if (timeSinceLastProcess < this.processInterval) {
                 const waitTime = this.processInterval - timeSinceLastProcess;
-                console.log(`Throttling: waiting ${waitTime}ms before next analysis`);
+                // Only log throttling for longer waits to reduce noise
+                if (waitTime > 5000) {
+                    console.log(`Throttling: waiting ${waitTime}ms before next analysis`);
+                }
                 await new Promise(resolve => setTimeout(resolve, waitTime));
             }
             
@@ -147,7 +153,10 @@ class AnalysisQueue {
         const currentInstance = this.processingCount;
         
         try {
-            console.log(`Processing instance ${currentInstance}: Starting batch ${item.hash} (priority: ${item.priority}, attempt: ${item.retries + 1})`);
+            // Reduce logging noise - only log retries and critical issues
+            if (item.retries > 0 || item.priority === 'critical') {
+                console.log(`Processing instance ${currentInstance}: Starting batch ${item.hash} (priority: ${item.priority}, attempt: ${item.retries + 1})`);
+            }
             
             const success = await this.executeAnalysis(item.logs, currentInstance);
             

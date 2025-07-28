@@ -472,6 +472,12 @@ configure_fluentbit() {
     Rule          log (?i)(ERROR|CRIT|WARN|FAIL|FATAL) host.filtered true
     Emitter_Name  re_emitter
 
+[FILTER]
+    Name          grep
+    Match         host.filtered
+    Exclude       log (?i)(node\[[0-9]+\]:.*queue|robolog.*queue|Queued batch|Processing instance|analysis.*queue|ollama.*queue)
+    Exclude       log (?i)(robolog-analyzer|robolog-dashboard|analyzer\.js)
+
 [OUTPUT]
     Name          http
     Match         host.filtered
