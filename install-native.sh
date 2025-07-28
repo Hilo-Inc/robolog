@@ -527,12 +527,43 @@ configure_nginx() {
     # Remove default_server directive to avoid conflicts with existing nginx installations
     sed -i 's| default_server||g' "$FINAL_CONF_PATH"
 
+    # ✅ FIX: Auto-detect server IP and set appropriate server_name to prevent nginx warnings
+    local server_name="_"
+    if [[ -n "$ssl_domain" ]]; then
+        server_name="$ssl_domain"
+        echo -e "${YELLOW}🌐 Using SSL domain as server name: $ssl_domain${NC}"
+    else
+        # Try to get the server's public IP address
+        local server_ip=""
+        for ip_service in "ifconfig.me" "ipinfo.io/ip" "icanhazip.com" "ipecho.net/plain"; do
+            server_ip=$(curl -s --connect-timeout 5 "$ip_service" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+            if [[ -n "$server_ip" ]]; then
+                echo -e "${YELLOW}🌐 Auto-detected server IP: $server_ip${NC}"
+                server_name="$server_ip"
+                break
+            fi
+        done
+        
+        # Fallback to local hostname if IP detection fails
+        if [[ "$server_name" == "_" ]]; then
+            local hostname=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "robolog.local")
+            if [[ "$hostname" != "localhost" && "$hostname" != "127.0.0.1" ]]; then
+                server_name="$hostname"
+                echo -e "${YELLOW}🌐 Using server hostname: $hostname${NC}"
+            else
+                echo -e "${YELLOW}⚠️ Could not detect server IP/hostname, using default${NC}"
+            fi
+        fi
+    fi
+
+    # Update server_name in nginx config to prevent conflicts
+    sed -i "s|server_name _;|server_name $server_name;|g" "$FINAL_CONF_PATH"
+
     # Configure SSL certificates
     local ssl_configured=false
     if [[ -n "$ssl_domain" ]] && [[ -f "/etc/letsencrypt/live/$ssl_domain/fullchain.pem" ]]; then
         # Use Let's Encrypt certificates
         echo -e "${YELLOW}🔒 Configuring Let's Encrypt SSL certificates...${NC}"
-        sed -i "s|server_name _;|server_name $ssl_domain;|g" "$FINAL_CONF_PATH"
         sed -i "s|ssl_certificate /etc/nginx/certs/nginx-selfsigned.crt;|ssl_certificate /etc/letsencrypt/live/$ssl_domain/fullchain.pem;|g" "$FINAL_CONF_PATH"
         sed -i "s|ssl_certificate_key /etc/nginx/certs/nginx-selfsigned.key;|ssl_certificate_key /etc/letsencrypt/live/$ssl_domain/privkey.pem;|g" "$FINAL_CONF_PATH"
         
