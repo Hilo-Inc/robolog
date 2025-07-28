@@ -18,7 +18,7 @@ export const FollowUp = ({ report, onNewDetails }: FollowUpProps) => {
         if (!question.trim() || !report) return;
 
         setIsLoading(true);
-        onNewDetails('Asking Gemma for more details...');
+        onNewDetails('Asking AI for more details...');
         try {
             const response = await fetch('/api/ask-details', {
                 method: 'POST',
@@ -59,7 +59,7 @@ export const FollowUp = ({ report, onNewDetails }: FollowUpProps) => {
                         disabled={isLoading || !question.trim() || !report}
                         className="mt-2 w-full"
                     >
-                        {isLoading ? 'Thinking...' : 'Ask Gemma'}
+                        {isLoading ? 'Thinking...' : 'Ask AI'}
                     </Button>
                 </form>
             </CardContent>

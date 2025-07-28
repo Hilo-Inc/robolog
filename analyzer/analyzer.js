@@ -88,7 +88,7 @@ class AnalysisQueue {
         this.sortQueue();
         
         // Only log high-priority or large queues to reduce noise
-        if (priority === 'critical' || this.queue.length > 10) {
+        if (priority === 'urgent' || this.queue.length > 10) {
             console.log(`Queued batch ${batchHash} (priority: ${priority}, queue size: ${this.queue.length})`);
         }
         
@@ -106,7 +106,7 @@ class AnalysisQueue {
 
     // Priority values for sorting (higher = more urgent)
     getPriorityValue(priority) {
-        const values = { 'low': 1, 'normal': 2, 'high': 3, 'critical': 4 };
+        const values = { 'low': 1, 'normal': 2, 'high': 3, 'urgent': 4 };
         return values[priority] || 2;
     }
 
@@ -154,7 +154,7 @@ class AnalysisQueue {
         
         try {
             // Reduce logging noise - only log retries and critical issues
-            if (item.retries > 0 || item.priority === 'critical') {
+            if (item.retries > 0 || item.priority === 'urgent') {
                 console.log(`Processing instance ${currentInstance}: Starting batch ${item.hash} (priority: ${item.priority}, attempt: ${item.retries + 1})`);
             }
             
@@ -308,7 +308,7 @@ async function processLogBuffer() {
     const hasError = logsToProcess.some(log => categorizeLogLevel(log.message) === 'ERROR');
     
     let priority = 'normal';
-    if (hasCritical) priority = 'critical';
+    if (hasCritical) priority = 'urgent';
     else if (hasError) priority = 'high';
     
     console.log(`Adding batch of ${logsToProcess.length} logs to queue (priority: ${priority}). ${logBuffer.length} logs remaining in buffer.`);
@@ -645,7 +645,7 @@ app.post('/queue/priority', (req, res) => {
         return res.status(400).json({ error: 'Invalid logs array' });
     }
     
-    const validPriorities = ['low', 'normal', 'high', 'critical'];
+    const validPriorities = ['low', 'normal', 'high', 'urgent'];
     if (!validPriorities.includes(priority)) {
         return res.status(400).json({ 
             error: 'Invalid priority. Must be one of: ' + validPriorities.join(', ')

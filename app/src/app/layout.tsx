@@ -11,7 +11,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Robolog AI Demo",
-  description: "Live Log Analysis with Ollama Gemma",
+  description: "Live Log Analysis with AI model",
 };
 const navItems = [
   { href: '/', label: 'Dashboard', icon: Home },
