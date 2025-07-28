@@ -35,6 +35,235 @@ const MAX_REPORTS = 50; // ✨ NEW: Limit the number of stored reports.
 const deduplicationCache = new Map();
 const DEDUPLICATION_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 
+// ✅ BEST PRACTICE: Queue-based processing with throttling
+class AnalysisQueue {
+    constructor() {
+        this.queue = [];
+        this.isProcessing = false;
+        this.processingCount = 0;
+        this.ollamaInUse = false;
+        this.ollamaRequestCount = 0;
+        this.maxQueueSize = 50;
+        this.processInterval = 2000; // Minimum 2 seconds between analyses
+        this.lastProcessTime = 0;
+        this.retryAttempts = new Map(); // Track retry attempts per batch hash
+        this.maxRetries = 3;
+        this.backoffMultiplier = 1000; // Start with 1 second backoff
+    }
+
+    // Add logs to queue with priority and deduplication
+    enqueue(logs, priority = 'normal') {
+        const batchHash = this.hashBatch(logs);
+        
+        // Check for duplicate batches already in queue
+        const existingIndex = this.queue.findIndex(item => item.hash === batchHash);
+        if (existingIndex !== -1) {
+            console.log(`Batch ${batchHash} already queued, updating priority if higher`);
+            if (this.getPriorityValue(priority) > this.getPriorityValue(this.queue[existingIndex].priority)) {
+                this.queue[existingIndex].priority = priority;
+                this.sortQueue();
+            }
+            return batchHash;
+        }
+
+        // Check queue size limit
+        if (this.queue.length >= this.maxQueueSize) {
+            // Remove lowest priority items to make room
+            this.queue.sort((a, b) => this.getPriorityValue(a.priority) - this.getPriorityValue(b.priority));
+            const removed = this.queue.shift();
+            console.log(`Queue full, removed batch ${removed.hash} (priority: ${removed.priority})`);
+        }
+
+        // Add new batch to queue
+        const queueItem = {
+            id: Date.now() + Math.random(),
+            hash: batchHash,
+            logs: logs,
+            priority: priority,
+            timestamp: Date.now(),
+            retries: 0
+        };
+
+        this.queue.push(queueItem);
+        this.sortQueue();
+        
+        console.log(`Queued batch ${batchHash} (priority: ${priority}, queue size: ${this.queue.length})`);
+        
+        // Start processing if not already running
+        this.startProcessing();
+        
+        return batchHash;
+    }
+
+    // Hash function for batch deduplication
+    hashBatch(logs) {
+        const content = logs.map(log => `${log.message}:${log.container}`).join('|');
+        return createHash('md5').update(content).digest('hex').substring(0, 8);
+    }
+
+    // Priority values for sorting (higher = more urgent)
+    getPriorityValue(priority) {
+        const values = { 'low': 1, 'normal': 2, 'high': 3, 'critical': 4 };
+        return values[priority] || 2;
+    }
+
+    // Sort queue by priority (highest first) then by timestamp (oldest first)
+    sortQueue() {
+        this.queue.sort((a, b) => {
+            const priorityDiff = this.getPriorityValue(b.priority) - this.getPriorityValue(a.priority);
+            return priorityDiff !== 0 ? priorityDiff : a.timestamp - b.timestamp;
+        });
+    }
+
+    // Start the processing loop
+    async startProcessing() {
+        if (this.isProcessing) return;
+        
+        this.isProcessing = true;
+        
+        while (this.queue.length > 0) {
+            const now = Date.now();
+            const timeSinceLastProcess = now - this.lastProcessTime;
+            
+            // Throttling: ensure minimum interval between processing
+            if (timeSinceLastProcess < this.processInterval) {
+                const waitTime = this.processInterval - timeSinceLastProcess;
+                console.log(`Throttling: waiting ${waitTime}ms before next analysis`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+            
+            const item = this.queue.shift();
+            await this.processItem(item);
+            this.lastProcessTime = Date.now();
+        }
+        
+        this.isProcessing = false;
+        console.log('Queue processing completed');
+    }
+
+    // Process individual queue item with retry logic
+    async processItem(item) {
+        this.processingCount++;
+        const currentInstance = this.processingCount;
+        
+        try {
+            console.log(`Processing instance ${currentInstance}: Starting batch ${item.hash} (priority: ${item.priority}, attempt: ${item.retries + 1})`);
+            
+            const success = await this.executeAnalysis(item.logs, currentInstance);
+            
+            if (success) {
+                console.log(`Processing instance ${currentInstance}: Completed batch ${item.hash} successfully`);
+                this.retryAttempts.delete(item.hash);
+            } else {
+                await this.handleFailure(item, currentInstance);
+            }
+            
+        } catch (error) {
+            console.error(`Processing instance ${currentInstance}: Unexpected error for batch ${item.hash}:`, error);
+            await this.handleFailure(item, currentInstance);
+        }
+    }
+
+    // Handle processing failures with exponential backoff
+    async handleFailure(item, instance) {
+        item.retries++;
+        this.retryAttempts.set(item.hash, item.retries);
+        
+        if (item.retries < this.maxRetries) {
+            const backoffTime = this.backoffMultiplier * Math.pow(2, item.retries - 1);
+            console.log(`Processing instance ${instance}: Batch ${item.hash} failed, retrying in ${backoffTime}ms (attempt ${item.retries + 1}/${this.maxRetries})`);
+            
+            // Re-queue with delay
+            setTimeout(() => {
+                item.timestamp = Date.now(); // Update timestamp for fair ordering
+                this.queue.push(item);
+                this.sortQueue();
+            }, backoffTime);
+        } else {
+            console.error(`Processing instance ${instance}: Batch ${item.hash} failed permanently after ${this.maxRetries} attempts`);
+            this.retryAttempts.delete(item.hash);
+        }
+    }
+
+    // Execute the actual analysis (wrapper around existing logic)
+    async executeAnalysis(logs, instance) {
+        // Check if Ollama is available
+        if (this.ollamaInUse) {
+            console.log(`Processing instance ${instance}: Ollama busy, analysis failed`);
+            return false;
+        }
+
+        try {
+            this.ollamaInUse = true;
+            this.ollamaRequestCount++;
+
+            // Use existing analysis logic
+            const summary = await summarize(logs);
+            
+            if (summary && summary.trim()) {
+                // Format and send the message (using existing logic)
+                let fullMessage = "📄 **Raw Logs in this Batch:**\n```\n";
+                for (const log of logs) {
+                    const hash = generateLogHash(log.message);
+                    const count = deduplicationCache.get(hash)?.count || 1;
+                    const repeatInfo = count > 1 ? ` (Repeated x${count} times)` : '';
+                    const time = new Date(log.time).toLocaleTimeString('en-US', { hour12: false });
+                    const cleanMessage = String(log.message).replace(/```/g, '` ` `');
+                    fullMessage += `[${time}] [${log.container}] ${cleanMessage.trim()}${repeatInfo}\n`;
+                }
+                fullMessage += "```\n\n";
+                fullMessage += `🤖 **AI Log Analysis (${LANGUAGE})**:\n${summary}`;
+
+                io.emit('new-summary', fullMessage);
+                await sendWebhook(fullMessage);
+
+                reportHistory.unshift(fullMessage);
+                if (reportHistory.length > MAX_REPORTS) {
+                    reportHistory.pop();
+                }
+                
+                return true;
+            } else {
+                console.log(`Processing instance ${instance}: AI returned empty summary`);
+                return false;
+            }
+            
+        } finally {
+            this.ollamaInUse = false;
+        }
+    }
+
+    // Get queue status for monitoring
+    getStatus() {
+        return {
+            queueSize: this.queue.length,
+            isProcessing: this.isProcessing,
+            processingCount: this.processingCount,
+            ollamaInUse: this.ollamaInUse,
+            ollamaRequestCount: this.ollamaRequestCount,
+            maxQueueSize: this.maxQueueSize,
+            processInterval: this.processInterval,
+            retryAttempts: Object.fromEntries(this.retryAttempts),
+            queueItems: this.queue.map(item => ({
+                hash: item.hash,
+                priority: item.priority,
+                retries: item.retries,
+                age: Date.now() - item.timestamp
+            }))
+        };
+    }
+
+    // Clear the queue (emergency use)
+    clear() {
+        this.queue = [];
+        this.retryAttempts.clear();
+        console.log('Queue cleared');
+    }
+}
+
+// Initialize the analysis queue
+const analysisQueue = new AnalysisQueue();
+
 /**
  * Creates a consistent hash for a log message, ignoring volatile parts like timestamps and numbers.
  * This allows us to group similar, recurring errors.
@@ -62,52 +291,21 @@ async function processLogBuffer() {
 
     if (logBuffer.length === 0) return;
 
-    // ✅ FIX: Process a smaller, fixed-size batch instead of the whole buffer.
-    // This prevents long-running Ollama requests from blocking subsequent logs.
+    // ✅ BEST PRACTICE: Process logs through the queue system
     const logsToProcess = logBuffer.splice(0, BATCH_SIZE);
-
-    console.log(`Processing batch of ${logsToProcess.length} log entries. ${logBuffer.length} logs remaining in buffer.`);
-
-    try {
-        const summary = await summarize(logsToProcess);
-
-        // ✅ BEST PRACTICE: Trim whitespace and check for a non-empty string.
-        // This prevents sending alerts for summaries that only contain spaces.
-        if (summary && summary.trim()) {
-            console.log("Summary is valid. Sending webhook...");
-
-            // ✅ As requested: Prepend the raw logs to the webhook and UI message.
-            // This provides the raw data first for evidence, followed by the AI's interpretation.
-            let fullMessage = "📄 **Raw Logs in this Batch:**\n```\n";
-            for (const log of logsToProcess) {
-                // ✅ ENHANCEMENT: Add repetition count for flapping errors.
-                const hash = generateLogHash(log.message);
-                const count = deduplicationCache.get(hash)?.count || 1;
-                const repeatInfo = count > 1 ? ` (Repeated x${count} times)` : '';
-
-                // Format for readability: [TIME] [CONTAINER] MESSAGE
-                const time = new Date(log.time).toLocaleTimeString('en-US', { hour12: false });
-                // Clean up the log message to avoid breaking markdown code blocks
-                const cleanMessage = String(log.message).replace(/```/g, '` ` `');
-                fullMessage += `[${time}] [${log.container}] ${cleanMessage.trim()}${repeatInfo}\n`;
-            }
-            fullMessage += "```\n\n"; // End of raw log block
-            fullMessage += `🤖 **AI Log Analysis (${LANGUAGE})**:\n${summary}`; // ✅ FIX: Colon is now outside the markdown bold for correct parsing.
-
-            io.emit('new-summary', fullMessage); // Broadcast full message to UI
-            await sendWebhook(fullMessage);      // Send full message to webhook
-
-            // ✨ NEW: Add the new report to the history.
-            reportHistory.unshift(fullMessage);
-            if (reportHistory.length > MAX_REPORTS) {
-                reportHistory.pop(); // Remove the oldest report to cap memory usage.
-            }
-        } else {
-            console.log("AI returned an empty or whitespace summary. Skipping webhook.");
-        }
-    } catch (e) {
-        console.error('Analyzer error', e);
-    }
+    
+    // Determine priority based on log severity
+    const hasCritical = logsToProcess.some(log => categorizeLogLevel(log.message) === 'CRITICAL');
+    const hasError = logsToProcess.some(log => categorizeLogLevel(log.message) === 'ERROR');
+    
+    let priority = 'normal';
+    if (hasCritical) priority = 'critical';
+    else if (hasError) priority = 'high';
+    
+    console.log(`Adding batch of ${logsToProcess.length} logs to queue (priority: ${priority}). ${logBuffer.length} logs remaining in buffer.`);
+    
+    // Add to queue for processing
+    analysisQueue.enqueue(logsToProcess, priority);
 }
 
 // --- Express Server Setup ---
@@ -147,6 +345,7 @@ app.get('/status', (req, res) => {
                 logBufferLength: logBuffer.length,
                 reportHistoryLength: reportHistory.length,
                 deduplicationCacheSize: deduplicationCache.size,
+                analysisQueue: analysisQueue.getStatus(),
             },
             system: {
                 freeMemoryMb: Math.round(os.freemem() / 1024 / 1024),
@@ -403,6 +602,53 @@ This analysis indicates a cascading infrastructure failure requiring immediate a
         length: testMessage.length,
         platform: platform,
         suggestion: `Use the /test-chunking endpoint to see how this message would be split for ${platform}.`
+    });
+});
+
+// ✨ NEW: Queue management endpoints
+app.get('/queue/status', (req, res) => {
+    res.status(200).json(analysisQueue.getStatus());
+});
+
+app.post('/queue/clear', (req, res) => {
+    analysisQueue.clear();
+    res.status(200).json({ message: 'Queue cleared successfully' });
+});
+
+app.post('/queue/throttle', (req, res) => {
+    const { interval } = req.body;
+    if (typeof interval === 'number' && interval >= 1000) {
+        analysisQueue.processInterval = interval;
+        res.status(200).json({ 
+            message: 'Throttle interval updated',
+            newInterval: interval 
+        });
+    } else {
+        res.status(400).json({ 
+            error: 'Invalid interval. Must be a number >= 1000ms' 
+        });
+    }
+});
+
+app.post('/queue/priority', (req, res) => {
+    const { logs, priority } = req.body;
+    if (!logs || !Array.isArray(logs)) {
+        return res.status(400).json({ error: 'Invalid logs array' });
+    }
+    
+    const validPriorities = ['low', 'normal', 'high', 'critical'];
+    if (!validPriorities.includes(priority)) {
+        return res.status(400).json({ 
+            error: 'Invalid priority. Must be one of: ' + validPriorities.join(', ')
+        });
+    }
+    
+    const batchHash = analysisQueue.enqueue(logs, priority);
+    res.status(200).json({ 
+        message: 'Logs queued successfully',
+        batchHash: batchHash,
+        priority: priority,
+        queueSize: analysisQueue.queue.length
     });
 });
 
