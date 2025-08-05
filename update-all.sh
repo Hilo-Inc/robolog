@@ -147,16 +147,56 @@ run_component_updates() {
             bash "./update-analyzer.sh" $force_flag --skip-backup
         else
             echo -e "${YELLOW}⚠️ Analyzer update script not found, using fallback method...${NC}"
-            # Fallback to inline analyzer update
-            cd /tmp
-            curl -fsSL https://github.com/Hilo-Inc/robolog/archive/refs/heads/main.tar.gz | tar -xz
+            # Fallback to inline analyzer update with git pull support
+            update_source_fallback() {
+                local SOURCE_DIR=""
+                local current_dir="$(pwd)"
+                local robolog_dirs=("/opt/robolog" "$current_dir" "$(dirname "$current_dir")" "$HOME/robolog" "/home/*/robolog")
+                
+                for dir in "${robolog_dirs[@]}"; do
+                    if [[ "$dir" == *"*"* ]]; then
+                        for expanded_dir in $dir; do
+                            if [[ -d "$expanded_dir/.git" ]]; then
+                                SOURCE_DIR="$expanded_dir"
+                                break 2
+                            fi
+                        done
+                    elif [[ -d "$dir/.git" ]]; then
+                        SOURCE_DIR="$dir"
+                        break
+                    fi
+                done
+                
+                if [[ -n "$SOURCE_DIR" ]]; then
+                    echo -e "${BLUE}📁 Found git repository at: $SOURCE_DIR${NC}"
+                    cd "$SOURCE_DIR" || exit 1
+                    if git rev-parse --git-dir > /dev/null 2>&1; then
+                        if git pull origin main 2>/dev/null || git pull origin master 2>/dev/null; then
+                            echo -e "${GREEN}✅ Git repository updated${NC}"
+                            echo "$SOURCE_DIR"
+                            return 0
+                        fi
+                    fi
+                fi
+                
+                # Download fallback
+                cd /tmp
+                curl -fsSL https://github.com/Hilo-Inc/robolog/archive/refs/heads/main.tar.gz | tar -xz
+                echo "/tmp/robolog-main"
+            }
+            
+            source_dir=$(update_source_fallback)
             systemctl stop robolog-analyzer
-            cp robolog-main/analyzer/analyzer.js "$INSTALL_DIR/"
-            cp robolog-main/analyzer/package.json "$INSTALL_DIR/"
+            cp "$source_dir/analyzer/analyzer.js" "$INSTALL_DIR/"
+            cp "$source_dir/analyzer/package.json" "$INSTALL_DIR/"
             cd "$INSTALL_DIR"
             sudo -u "$USER" npm install --production
             systemctl start robolog-analyzer
-            rm -rf /tmp/robolog-main
+            
+            # Clean up only if we downloaded
+            if [[ "$source_dir" == "/tmp/"* ]]; then
+                rm -rf /tmp/robolog-main
+            fi
         fi
         echo -e "${GREEN}✅ Analyzer updated${NC}"
     fi
@@ -290,8 +330,13 @@ main() {
                 echo "  --dashboard-only     Update only dashboard component"
                 echo "  --help, -h           Show this help message"
                 echo ""
-                echo "Environment variables:"
-                echo "  GITHUB_TOKEN         GitHub token for private repository access"
+                echo "Update methods (automatic detection):"
+                echo "  1. Git pull          If robolog git repository is found locally"
+                echo "  2. Download          Fallback to downloading latest from GitHub"
+                echo "  3. Individual scripts Uses update-analyzer.sh and update-dashboard.sh"
+                echo ""
+                echo "The script searches for git repositories and individual update scripts"
+                echo "to provide the most efficient update method for your installation."
                 exit 0
                 ;;
             *)

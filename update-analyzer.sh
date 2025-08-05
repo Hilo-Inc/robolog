@@ -63,16 +63,55 @@ backup_current_analyzer() {
     fi
 }
 
-# Function to download and extract latest source
-download_latest_source() {
+# Function to update source via git pull or download
+update_source() {
+    local SOURCE_DIR=""
+    
+    # First try to find a local git repository
+    local current_dir="$(pwd)"
+    local robolog_dirs=("/opt/robolog" "$current_dir" "$(dirname "$current_dir")" "$HOME/robolog" "/home/*/robolog")
+    
+    for dir in "${robolog_dirs[@]}"; do
+        # Handle glob patterns
+        if [[ "$dir" == *"*"* ]]; then
+            for expanded_dir in $dir; do
+                if [[ -d "$expanded_dir/.git" ]]; then
+                    SOURCE_DIR="$expanded_dir"
+                    break 2
+                fi
+            done
+        elif [[ -d "$dir/.git" ]]; then
+            SOURCE_DIR="$dir"
+            break
+        fi
+    done
+    
+    if [[ -n "$SOURCE_DIR" ]]; then
+        echo -e "${BLUE}📁 Found git repository at: $SOURCE_DIR${NC}"
+        echo -e "${YELLOW}🔄 Updating via git pull...${NC}"
+        
+        cd "$SOURCE_DIR" || exit 1
+        
+        # Check if we're in a git repository and pull latest changes
+        if git rev-parse --git-dir > /dev/null 2>&1; then
+            if ! git pull origin main 2>/dev/null && ! git pull origin master 2>/dev/null; then
+                echo -e "${YELLOW}⚠️ Git pull failed, falling back to download method...${NC}"
+                SOURCE_DIR=""
+            else
+                echo -e "${GREEN}✅ Git repository updated successfully${NC}"
+                echo "$SOURCE_DIR"
+                return 0
+            fi
+        else
+            echo -e "${YELLOW}⚠️ Not a git repository, falling back to download method...${NC}"
+            SOURCE_DIR=""
+        fi
+    fi
+    
+    # Fallback to download method
     echo -e "${YELLOW}📥 Downloading latest Robolog source from GitHub...${NC}"
     
     local GITHUB_URL="https://github.com/Hilo-Inc/robolog/archive/refs/heads/main.tar.gz"
-    local AUTH_HEADER=""
-    if [[ -n "$GITHUB_TOKEN" ]]; then
-        AUTH_HEADER="-H \"Authorization: Bearer $GITHUB_TOKEN\""
-    fi
-
     local TMP_DIR="/tmp"
     local TARBALL="$TMP_DIR/robolog-main-analyzer-update.tar.gz"
     local EXTRACT_DIR="$TMP_DIR/robolog-main-analyzer-update"
@@ -80,8 +119,9 @@ download_latest_source() {
     # Clean up any previous downloads
     rm -rf "$TARBALL" "$EXTRACT_DIR"
 
-    if ! eval "curl -fsSL $AUTH_HEADER -o \"$TARBALL\" \"$GITHUB_URL\""; then
+    if ! curl -fsSL -o "$TARBALL" "$GITHUB_URL"; then
         echo -e "${RED}❌ Failed to download Robolog source from GitHub.${NC}"
+        echo -e "${YELLOW}💡 Make sure you have internet access and try again.${NC}"
         exit 1
     fi
 
@@ -197,8 +237,15 @@ main() {
                 echo "  --skip-backup      Skip creating backup of current analyzer"
                 echo "  --help, -h         Show this help message"
                 echo ""
-                echo "Environment variables:"
-                echo "  GITHUB_TOKEN       GitHub token for private repository access"
+                echo "Update methods (automatic detection):"
+                echo "  1. Git pull        If robolog git repository is found locally"
+                echo "  2. Download        Fallback to downloading latest from GitHub"
+                echo ""
+                echo "Search locations for git repository:"
+                echo "  - /opt/robolog"
+                echo "  - Current directory and parent"
+                echo "  - ~/robolog"
+                echo "  - /home/*/robolog"
                 exit 0
                 ;;
             *)
@@ -227,8 +274,8 @@ main() {
         backup_current_analyzer
     fi
     
-    # Download latest source
-    EXTRACT_DIR=$(download_latest_source)
+    # Update source (via git pull or download)
+    EXTRACT_DIR=$(update_source)
     
     # Update analyzer files
     update_analyzer_files "$EXTRACT_DIR"
@@ -236,8 +283,10 @@ main() {
     # Start analyzer service
     start_analyzer_service
     
-    # Cleanup
-    cleanup_temp_files "$EXTRACT_DIR"
+    # Cleanup (only if we downloaded files)
+    if [[ "$EXTRACT_DIR" == "/tmp/"* ]]; then
+        cleanup_temp_files "$EXTRACT_DIR"
+    fi
     
     # Show final status
     echo ""
