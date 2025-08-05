@@ -24,13 +24,16 @@ import { ReportDisplay } from '@/components/dashboard/ReportDisplay';
 import { FollowUp } from "@/components/dashboard/FollowUp";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Label } from 'recharts';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface ParsedReport {
     id: string;
     time: string;
+    date: string;
     topSeverity: 'CRITICAL' | 'ERROR' | 'WARNING' | 'UNKNOWN';
     snippet: string;
     fullReport: string;
+    timestamp: number;
 }
 
 
@@ -65,9 +68,28 @@ function parseReportForTable(report: string, index: number): ParsedReport {
     const id = `${Date.now()}-${index}`;
 
     let time = "N/A";
+    let date = "N/A";
+    let timestamp = Date.now();
+    
+    // Try to extract time from the log entries
     const timeMatch = report.match(/\[(\d{2}:\d{2}:\d{2})\]/);
     if (timeMatch) {
         time = timeMatch[1];
+        
+        // Create a proper date/timestamp for this report
+        const now = new Date();
+        const [h, m, s] = timeMatch[1].split(':').map(Number);
+        const reportDate = new Date(now);
+        reportDate.setHours(h, m, s, 0);
+        
+        // If the time is in the future, assume it's from yesterday
+        if (reportDate > now) {
+            reportDate.setDate(reportDate.getDate() - 1);
+        }
+        
+        timestamp = reportDate.getTime();
+        date = reportDate.toLocaleDateString();
+        time = reportDate.toLocaleTimeString();
     }
 
     let topSeverity: ParsedReport['topSeverity'] = 'UNKNOWN';
@@ -75,13 +97,43 @@ function parseReportForTable(report: string, index: number): ParsedReport {
     else if (report.includes('ERROR')) topSeverity = 'ERROR';
     else if (report.includes('WARNING')) topSeverity = 'WARNING';
 
+    // Improved snippet extraction - get meaningful content instead of just titles
     let snippet = "Could not generate summary snippet.";
-    const summaryMatch = report.match(/🤖 \*\*AI Log Analysis.*?\*\*:\n([\s\S]*)/);
+    
+    // Try to find the AI analysis section
+    const summaryMatch = report.match(/🤖 \*\*AI Log Analysis.*?\*\*:\s*([\s\S]*)/);
     if (summaryMatch && summaryMatch[1]) {
-        snippet = summaryMatch[1].trim().split('\n')[0];
+        const analysisContent = summaryMatch[1].trim();
+        
+        // Look for the first meaningful line after section headers
+        const lines = analysisContent.split('\n');
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            // Skip empty lines, section headers, and bullet point headers
+            if (trimmedLine && 
+                !trimmedLine.startsWith('🚨') && 
+                !trimmedLine.startsWith('⚠️') && 
+                !trimmedLine.startsWith('📊') && 
+                !trimmedLine.startsWith('🔧') &&
+                !trimmedLine.match(/^\*\*[A-Z\s]+\*\*$/)) {
+                
+                // If it's a bullet point, extract the content after the dash and formatting
+                if (trimmedLine.startsWith('- ')) {
+                    snippet = trimmedLine.substring(2).replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+                } else {
+                    snippet = trimmedLine.replace(/\*\*([^*]+)\*\*/g, '$1').trim();
+                }
+                
+                // Limit snippet length
+                if (snippet.length > 100) {
+                    snippet = snippet.substring(0, 100) + '...';
+                }
+                break;
+            }
+        }
     }
 
-    return { id, time, topSeverity, snippet, fullReport: report };
+    return { id, time, date, topSeverity, snippet, fullReport: report, timestamp };
 }
 
 
@@ -109,6 +161,7 @@ export default function DashboardPage() {
     const [processingStatus, setProcessingStatus] = useState<string | null>(null);
     const [modelName, setModelName] = useState<string>("...");
     const [errorLogs, setErrorLogs] = useState<any[]>([]);
+    const [showOldIssues, setShowOldIssues] = useState(false);
 
     // ✨ NEW: Persist reports to localStorage whenever they change.
     useEffect(() => {
@@ -190,6 +243,11 @@ export default function DashboardPage() {
 
     const parsedReports = reports.map(parseReportForTable);
 
+    // Separate recent and old reports (12 hours = 12 * 60 * 60 * 1000 ms)
+    const twelveHoursAgo = Date.now() - (12 * 60 * 60 * 1000);
+    const recentReports = parsedReports.filter(report => report.timestamp > twelveHoursAgo);
+    const oldReports = parsedReports.filter(report => report.timestamp <= twelveHoursAgo);
+
     const buckets = getLast12HoursBuckets();
 
     const chartData = buckets.map(b => ({
@@ -240,22 +298,25 @@ export default function DashboardPage() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead className="w-[100px]">Time</TableHead>
+                                <TableHead className="w-[140px]">Date & Time</TableHead>
                                 <TableHead>Severity</TableHead>
                                 <TableHead>Summary</TableHead>
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {parsedReports.length > 0 ? parsedReports.map((report) => (
+                            {recentReports.length > 0 ? recentReports.map((report) => (
                                 <TableRow key={report.id}>
-                                    <TableCell className="font-mono">{report.time}</TableCell>
+                                    <TableCell className="font-mono">
+                                        <div className="text-xs">{report.date}</div>
+                                        <div>{report.time}</div>
+                                    </TableCell>
                                     <TableCell>
                                         <Badge variant={report.topSeverity === 'CRITICAL' || report.topSeverity === 'ERROR' ? 'destructive' : 'default'}>
                                             {report.topSeverity}
                                         </Badge>
                                     </TableCell>
-                                    <TableCell className="max-w-sm truncate">{report.snippet || report.fullReport?.slice(0, 80)}</TableCell>
+                                    <TableCell className="max-w-sm truncate">{report.snippet}</TableCell>
                                     <TableCell className="text-right">
                                         <Button variant="outline" size="sm" onClick={() => setSelectedReport(report)}>
                                             View Details
@@ -265,9 +326,47 @@ export default function DashboardPage() {
                             )) : (
                                 <TableRow>
                                     <TableCell colSpan={4} className="h-24 text-center">
-                                        No reports yet. Go to the Testing Tools page to generate some errors.
+                                        No recent reports. Go to the Testing Tools page to generate some errors.
                                     </TableCell>
                                 </TableRow>
+                            )}
+                            
+                            {oldReports.length > 0 && (
+                                <>
+                                    <TableRow className="bg-muted/50">
+                                        <TableCell colSpan={4}>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => setShowOldIssues(!showOldIssues)}
+                                                className="w-full flex items-center justify-center gap-2"
+                                            >
+                                                {showOldIssues ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                {showOldIssues ? 'Hide' : 'Show'} older issues ({oldReports.length} items older than 12 hours)
+                                                {showOldIssues ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                    {showOldIssues && oldReports.map((report) => (
+                                        <TableRow key={report.id} className="opacity-60">
+                                            <TableCell className="font-mono">
+                                                <div className="text-xs">{report.date}</div>
+                                                <div>{report.time}</div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Badge variant={report.topSeverity === 'CRITICAL' || report.topSeverity === 'ERROR' ? 'destructive' : 'default'}>
+                                                    {report.topSeverity}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="max-w-sm truncate">{report.snippet}</TableCell>
+                                            <TableCell className="text-right">
+                                                <Button variant="outline" size="sm" onClick={() => setSelectedReport(report)}>
+                                                    View Details
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </>
                             )}
                         </TableBody>
                     </Table>

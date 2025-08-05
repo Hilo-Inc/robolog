@@ -2,7 +2,7 @@
 
 > **Intelligent log monitoring with AI-powered analysis and Discord notifications**
 
-Robolog automatically monitors your system logs, detects critical issues, and sends intelligent summaries to Discord using AI analysis powered by Ollama and Gemma 3n (default).
+Robolog automatically monitors your Linux system logs, detects critical issues, and sends intelligent summaries to Discord (or other webhook service) using AI analysis powered by Ollama and Gemma 3n (default).
 
 ## 📦 Quick Installation (Linux)
 
@@ -53,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/Hilo-Inc/robolog/main/install-nativ
 - ✅ Better performance (no container overhead) 
 - ✅ Direct system integration with systemd
 - ✅ Lower resource usage (~500MB vs ~2GB with Docker)
-- ✅ Multiple AI model options (Gemma 3n [default], Qwen 3, LLaMA 3.2, Phi-3)
+- ✅ Multiple AI model options ([Gemma 3n](https://huggingface.co/google/gemma-3n-E2B) [default], Qwen 3, LLaMA 3.2, Phi-3)
 - ✅ Multilingual support (English, Spanish, French, German, Chinese, Japanese, and more)
 - ✅ Optional AI model download (5.6GB Gemma 3n or smaller alternatives)
 
@@ -181,6 +181,7 @@ LANGUAGE=English  # Options: English, Spanish, French, German, Chinese, Japanese
 
 # AI model selection (Gemma 3n is recommended for best quality)
 MODEL_NAME=gemma3n:e2b  # Options: gemma3n:e2b [default], qwen3:8b, llama3.2:1b, phi3:mini
+# Note: Gemma models are subject to Google's Terms of Use: https://ai.google.dev/gemma/terms
 ```
 
 ## 🧪 Testing
@@ -200,7 +201,7 @@ Check your webhook platform within 60 seconds for the AI-powered analysis in you
 
 ## 📊 Features
 
-- **🤖 AI-Powered Analysis**: Uses Ollama with multiple model options (Gemma 3n [default], Qwen 3, LLaMA 3.2, Phi-3)
+- **🤖 AI-Powered Analysis**: Uses Ollama with multiple model options ([Gemma 3n](https://huggingface.co/google/gemma-3n-E2B) [default], Qwen 3, LLaMA 3.2, Phi-3)
 - **🌐 Multilingual Support**: Receive notifications in your preferred language (English, Spanish, French, German, Chinese, Japanese, and more)
 - **📱 Multi-Platform Webhooks**: Supports Discord, Slack, Microsoft Teams, Telegram, Mattermost, Rocket.Chat, and generic webhooks
 - **🔍 Multi-Level Filtering**: Automatically categorizes by severity (CRITICAL, ERROR, WARNING)
@@ -318,8 +319,10 @@ WEBHOOK_PLATFORM=discord
 **Components:**
 - **Fluent Bit**: Collects and centralizes logs (system logs for native, container logs for Docker)
 - **Analyzer**: Node.js service that filters, structures, and analyzes logs
-- **Ollama**: Local AI model serving (Gemma 3n [default], Qwen 3, LLaMA 3.2, or Phi-3) for intelligent analysis
+- **Ollama**: Local AI model serving ([Gemma 3n](https://huggingface.co/google/gemma-3n-E2B) [default], Qwen 3, LLaMA 3.2, or Phi-3) for intelligent analysis
 - **Webhook Platform**: Multi-platform notification delivery (Discord, Slack, Teams, Telegram, etc.) with structured summaries and recommendations
+
+> **Note**: Gemma models are open models from Google DeepMind. Usage is subject to the [Gemma Terms of Use](https://ai.google.dev/gemma/terms). View all Gemma models on [Hugging Face](https://huggingface.co/collections/google/gemma-3n-65ade97eea58b3aeacd7c2e4).
 
 ## 🔄 Supported Linux Distributions
 
