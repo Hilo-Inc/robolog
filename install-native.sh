@@ -937,27 +937,33 @@ main() {
         esac
     done
 
-    if [[ "$AUTO_YES" != "true" ]]; then
+    # Only prompt for dashboard if not already set by command line flags
+    if [[ "$INSTALL_DASHBOARD" != "true" && "$AUTO_YES" != "true" ]]; then
         if [ -t 0 ]; then
             read -p "Install the Web Dashboard (requires Nginx)? [y/N]: " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]]; then
                 INSTALL_DASHBOARD=true
-                # Before configuring Nginx
-                DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
-                mkdir -p "$DASHBOARD_CERT_DIR"
-                if [[ ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" || ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" ]]; then
-                    echo -e "${YELLOW}⚠️  No self-signed cert found. Generating one for demo use...${NC}"
-                    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-                      -keyout "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" \
-                      -out "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" \
-                      -subj "/CN=localhost"
-                    echo -e "${GREEN}✅ Self-signed SSL cert generated at $DASHBOARD_CERT_DIR${NC}"
-                fi
             fi
         else
             echo -e "${YELLOW}⚠️  No terminal detected. Skipping dashboard install prompt.${NC}"
+            echo -e "${BLUE}💡 Use --with-dashboard flag to install dashboard in non-interactive mode.${NC}"
             INSTALL_DASHBOARD=false
+        fi
+    fi
+
+    # Generate SSL certificates if dashboard is being installed
+    if [[ "$INSTALL_DASHBOARD" = true ]]; then
+        # Before configuring Nginx
+        DASHBOARD_CERT_DIR="$INSTALL_DIR/app/certs"
+        mkdir -p "$DASHBOARD_CERT_DIR"
+        if [[ ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" || ! -f "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" ]]; then
+            echo -e "${YELLOW}⚠️  No self-signed cert found. Generating one for demo use...${NC}"
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+              -keyout "$DASHBOARD_CERT_DIR/nginx-selfsigned.key" \
+              -out "$DASHBOARD_CERT_DIR/nginx-selfsigned.crt" \
+              -subj "/CN=localhost"
+            echo -e "${GREEN}✅ Self-signed SSL cert generated at $DASHBOARD_CERT_DIR${NC}"
         fi
     fi
 
