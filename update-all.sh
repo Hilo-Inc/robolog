@@ -168,11 +168,11 @@ run_component_updates() {
                 done
                 
                 if [[ -n "$SOURCE_DIR" ]]; then
-                    echo -e "${BLUE}📁 Found git repository at: $SOURCE_DIR${NC}"
+                    echo -e "${BLUE}📁 Found git repository at: $SOURCE_DIR${NC}" >&2
                     cd "$SOURCE_DIR" || exit 1
                     if git rev-parse --git-dir > /dev/null 2>&1; then
                         if git pull origin main 2>/dev/null || git pull origin master 2>/dev/null; then
-                            echo -e "${GREEN}✅ Git repository updated${NC}"
+                            echo -e "${GREEN}✅ Git repository updated${NC}" >&2
                             echo "$SOURCE_DIR"
                             return 0
                         fi

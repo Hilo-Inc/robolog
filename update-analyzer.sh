@@ -87,29 +87,29 @@ update_source() {
     done
     
     if [[ -n "$SOURCE_DIR" ]]; then
-        echo -e "${BLUE}📁 Found git repository at: $SOURCE_DIR${NC}"
-        echo -e "${YELLOW}🔄 Updating via git pull...${NC}"
+        echo -e "${BLUE}📁 Found git repository at: $SOURCE_DIR${NC}" >&2
+        echo -e "${YELLOW}🔄 Updating via git pull...${NC}" >&2
         
         cd "$SOURCE_DIR" || exit 1
         
         # Check if we're in a git repository and pull latest changes
         if git rev-parse --git-dir > /dev/null 2>&1; then
             if ! git pull origin main 2>/dev/null && ! git pull origin master 2>/dev/null; then
-                echo -e "${YELLOW}⚠️ Git pull failed, falling back to download method...${NC}"
+                echo -e "${YELLOW}⚠️ Git pull failed, falling back to download method...${NC}" >&2
                 SOURCE_DIR=""
             else
-                echo -e "${GREEN}✅ Git repository updated successfully${NC}"
+                echo -e "${GREEN}✅ Git repository updated successfully${NC}" >&2
                 echo "$SOURCE_DIR"
                 return 0
             fi
         else
-            echo -e "${YELLOW}⚠️ Not a git repository, falling back to download method...${NC}"
+            echo -e "${YELLOW}⚠️ Not a git repository, falling back to download method...${NC}" >&2
             SOURCE_DIR=""
         fi
     fi
     
     # Fallback to download method
-    echo -e "${YELLOW}📥 Downloading latest Robolog source from GitHub...${NC}"
+    echo -e "${YELLOW}📥 Downloading latest Robolog source from GitHub...${NC}" >&2
     
     local GITHUB_URL="https://github.com/Hilo-Inc/robolog/archive/refs/heads/main.tar.gz"
     local TMP_DIR="/tmp"
@@ -120,18 +120,18 @@ update_source() {
     rm -rf "$TARBALL" "$EXTRACT_DIR"
 
     if ! curl -fsSL -o "$TARBALL" "$GITHUB_URL"; then
-        echo -e "${RED}❌ Failed to download Robolog source from GitHub.${NC}"
-        echo -e "${YELLOW}💡 Make sure you have internet access and try again.${NC}"
+        echo -e "${RED}❌ Failed to download Robolog source from GitHub.${NC}" >&2
+        echo -e "${YELLOW}💡 Make sure you have internet access and try again.${NC}" >&2
         exit 1
     fi
 
     mkdir -p "$EXTRACT_DIR"
     if ! tar -xzf "$TARBALL" -C "$EXTRACT_DIR" --strip-components=1; then
-        echo -e "${RED}❌ Failed to extract the downloaded tarball.${NC}"
+        echo -e "${RED}❌ Failed to extract the downloaded tarball.${NC}" >&2
         exit 1
     fi
 
-    echo -e "${GREEN}✅ Latest source downloaded and extracted${NC}"
+    echo -e "${GREEN}✅ Latest source downloaded and extracted${NC}" >&2
     echo "$EXTRACT_DIR"
 }
 
