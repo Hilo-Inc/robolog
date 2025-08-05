@@ -94,8 +94,9 @@ update_source() {
         
         # Check if we're in a git repository and pull latest changes
         if git rev-parse --git-dir > /dev/null 2>&1; then
-            # Redirect both stdout and stderr to suppress git pull output
-            if git pull origin main >/dev/null 2>&1 || git pull origin master >/dev/null 2>&1; then
+            # Capture and discard git pull output completely
+            local git_output
+            if git_output=$(git pull origin main 2>&1) || git_output=$(git pull origin master 2>&1); then
                 echo -e "${GREEN}✅ Git repository updated successfully${NC}" >&2
                 echo "$SOURCE_DIR"
                 return 0
