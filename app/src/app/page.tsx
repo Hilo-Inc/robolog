@@ -52,17 +52,7 @@ function getLast12HoursBuckets() {
     return buckets;
 }
 
-function parseTimeToHourISO(timeStr: string) {
-    // Handles "14:23:05", "N/A", etc.
-    // Assume reports have real times
-    if (!timeStr || timeStr === "N/A") return null;
-    const now = new Date();
-    const [h, m, s] = timeStr.split(":").map(Number);
-    if ([h, m, s].some(isNaN)) return null;
-    const d = new Date(now);
-    d.setHours(h, 0, 0, 0);
-    return d.toISOString().slice(0, 13); // match to bucket
-}
+
 
 function parseReportForTable(report: string, index: number): ParsedReport {
     const id = `${Date.now()}-${index}`;
@@ -160,7 +150,7 @@ export default function DashboardPage() {
     const [selectedReport, setSelectedReport] = useState<ParsedReport | null>(null);
     const [processingStatus, setProcessingStatus] = useState<string | null>(null);
     const [modelName, setModelName] = useState<string>("...");
-    const [errorLogs, setErrorLogs] = useState<any[]>([]);
+
     const [showOldIssues, setShowOldIssues] = useState(false);
 
     // ✨ NEW: Persist reports to localStorage whenever they change.
@@ -173,12 +163,7 @@ export default function DashboardPage() {
         }
     }, [reports]);
 
-    useEffect(() => {
-        fetch('/analyzer/errors?hours=12')
-            .then(r => r.json())
-            .then(setErrorLogs)
-            .catch(() => setErrorLogs([]));
-    }, [reports]);
+
 
     // Fetch Ollama model name from analyzer
     useEffect(() => {
@@ -252,23 +237,26 @@ export default function DashboardPage() {
 
     const chartData = buckets.map(b => ({
         hour: b.hour,
-        logs: []
+        reports: []
     }));
 
-    for (const err of errorLogs) {
-        // err.time should be ISO. Use first 13 chars ("YYYY-MM-DDTHH")
-        const hourIso = err.time.slice(0, 13);
-        const idx = buckets.findIndex(b => b.iso === hourIso);
-        if (idx !== -1) {
-            // @ts-ignore
-            chartData[idx].logs.push(err);
+    // Use the same report data as the table instead of separate errorLogs
+    for (const report of parsedReports) {
+        if (report.timestamp > 0) {
+            const reportDate = new Date(report.timestamp);
+            const hourIso = reportDate.toISOString().slice(0, 13);
+            const idx = buckets.findIndex(b => b.iso === hourIso);
+            if (idx !== -1) {
+                // @ts-ignore
+                chartData[idx].reports.push(report);
+            }
         }
     }
 
     const errorPoints = chartData.map(b => ({
         hour: b.hour,
-        count: b.logs.length,
-        reports: b.logs
+        count: b.reports.length,
+        reports: b.reports
     }));
 
 
@@ -426,11 +414,12 @@ export default function DashboardPage() {
                                             return (
                                                 <div className="bg-gray-800 text-white p-2 rounded">
                                                     <div><b>{label}</b></div>
-                                                    <div>Errors: {reports.length}</div>
-                                                    {/*@ts-ignore*/}
-                                                    {reports.slice(0,3).map((rep, i) => (
+                                                    <div>Reports: {reports.length}</div>
+                                                    {reports.slice(0,3).map((report: ParsedReport, i: number) => (
                                                         <div key={i} className="mt-1">
-                                                            <div className="font-mono text-xs">{rep.time} — {rep.snippet}</div>
+                                                            <div className="font-mono text-xs">
+                                                                <span className="text-yellow-400">{report.topSeverity}</span> — {report.snippet}
+                                                            </div>
                                                         </div>
                                                     ))}
                                                     {reports.length > 3 && <div className="text-xs text-gray-400">+{reports.length-3} more</div>}
