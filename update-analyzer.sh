@@ -94,13 +94,14 @@ update_source() {
         
         # Check if we're in a git repository and pull latest changes
         if git rev-parse --git-dir > /dev/null 2>&1; then
-            if ! git pull origin main 2>/dev/null && ! git pull origin master 2>/dev/null; then
-                echo -e "${YELLOW}⚠️ Git pull failed, falling back to download method...${NC}" >&2
-                SOURCE_DIR=""
-            else
+            # Redirect both stdout and stderr to suppress git pull output
+            if git pull origin main >/dev/null 2>&1 || git pull origin master >/dev/null 2>&1; then
                 echo -e "${GREEN}✅ Git repository updated successfully${NC}" >&2
                 echo "$SOURCE_DIR"
                 return 0
+            else
+                echo -e "${YELLOW}⚠️ Git pull failed, falling back to download method...${NC}" >&2
+                SOURCE_DIR=""
             fi
         else
             echo -e "${YELLOW}⚠️ Not a git repository, falling back to download method...${NC}" >&2
