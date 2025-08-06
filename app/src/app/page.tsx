@@ -306,9 +306,9 @@ export default function DashboardPage() {
     return (
         <>
             {processingStatus && (
-                <Card className="mb-4 bg-blue-900/50 border-blue-500 animate-pulse">
+                <Card className="mb-4 bg-blue-900/50 border-blue-500">
                     <CardHeader>
-                        <CardTitle className="text-lg text-blue-300 flex items-center gap-2">
+                        <CardTitle className="text-lg text-blue-300 flex items-center gap-2 animate-pulse">
                             <div className="w-4 h-4 bg-blue-400 rounded-full animate-bounce"></div>
                             Analysis in Progress
                         </CardTitle>
