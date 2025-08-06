@@ -339,7 +339,7 @@ app.get('/status', (req, res) => {
             memoryUsage: process.memoryUsage(),
             configuration: {
                 ollamaUrl: OLLAMA_URL,
-                model: MODEL,
+                model: global.MODEL || MODEL,
                 language: LANGUAGE,
                 webhookPlatform: WEBHOOK_PLATFORM,
                 // For security, we only report if the webhook is set, not its value.
@@ -349,6 +349,15 @@ app.get('/status', (req, res) => {
                 deduplicationWindowMs: DEDUPLICATION_WINDOW_MS,
                 platformLimits: PLATFORM_LIMITS,
                 currentPlatformLimit: PLATFORM_LIMITS[WEBHOOK_PLATFORM?.toLowerCase()] || PLATFORM_LIMITS.generic,
+                // ✨ NEW: Include current Ollama configuration
+                temperature: global.TEMPERATURE || 0.2,
+                top_p: global.TOP_P || 0.8,
+                top_k: global.TOP_K || 20,
+                repeat_penalty: global.REPEAT_PENALTY || 1.1,
+                num_predict: global.NUM_PREDICT || 500,
+                keep_alive: global.KEEP_ALIVE || "10m",
+                streaming: global.STREAMING !== undefined ? global.STREAMING : false,
+                stop: global.STOP_TOKENS || ["---", "###"]
             },
             state: {
                 logBufferLength: logBuffer.length,
@@ -661,7 +670,122 @@ app.post('/queue/priority', (req, res) => {
     });
 });
 
+// ✨ NEW: Configuration management endpoints
+app.get('/ollama/models', async (req, res) => {
+    try {
+        const response = await fetch(`${OLLAMA_URL}/api/tags`);
+        if (response.ok) {
+            const data = await response.json();
+            res.status(200).json(data);
+        } else {
+            res.status(500).json({ error: 'Failed to fetch models from Ollama' });
+        }
+    } catch (error) {
+        console.error('Error fetching Ollama models:', error);
+        res.status(500).json({ error: 'Error connecting to Ollama' });
+    }
+});
 
+app.post('/config', (req, res) => {
+    try {
+        const config = req.body;
+        
+        // Update global configuration
+        if (config.model) global.MODEL = config.model;
+        if (config.temperature !== undefined) global.TEMPERATURE = config.temperature;
+        if (config.top_p !== undefined) global.TOP_P = config.top_p;
+        if (config.top_k !== undefined) global.TOP_K = config.top_k;
+        if (config.repeat_penalty !== undefined) global.REPEAT_PENALTY = config.repeat_penalty;
+        if (config.num_predict !== undefined) global.NUM_PREDICT = config.num_predict;
+        if (config.keep_alive !== undefined) global.KEEP_ALIVE = config.keep_alive;
+        if (config.streaming !== undefined) global.STREAMING = config.streaming;
+        if (config.stop && Array.isArray(config.stop)) global.STOP_TOKENS = config.stop;
+
+        console.log('Configuration updated:', config);
+        res.status(200).json({ message: 'Configuration updated successfully' });
+    } catch (error) {
+        console.error('Error updating configuration:', error);
+        res.status(500).json({ error: 'Failed to update configuration' });
+    }
+});
+
+app.post('/test-model', async (req, res) => {
+    const { model } = req.body;
+    const startTime = Date.now();
+    
+    try {
+        const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: model || MODEL,
+                prompt: 'Test: Respond with "OK"',
+                stream: false,
+                options: {
+                    num_predict: 10
+                }
+            })
+        });
+
+        const responseTime = Date.now() - startTime;
+
+        if (response.ok) {
+            const data = await response.json();
+            res.status(200).json({
+                success: true,
+                responseTime: responseTime,
+                response: data.response
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: 'Model test failed',
+                responseTime: responseTime
+            });
+        }
+    } catch (error) {
+        const responseTime = Date.now() - startTime;
+        console.error('Model test error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Error connecting to model',
+            responseTime: responseTime
+        });
+    }
+});
+
+app.post('/warm-model', async (req, res) => {
+    const { model, keep_alive } = req.body;
+    
+    try {
+        const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: model || MODEL,
+                prompt: 'warmup',
+                stream: false,
+                keep_alive: keep_alive || '10m',
+                options: {
+                    num_predict: 1
+                }
+            })
+        });
+
+        if (response.ok) {
+            console.log(`Model ${model || MODEL} warmed up with keep_alive: ${keep_alive || '10m'}`);
+            res.status(200).json({ 
+                message: 'Model warmed up successfully',
+                keep_alive: keep_alive || '10m'
+            });
+        } else {
+            res.status(500).json({ error: 'Failed to warm up model' });
+        }
+    } catch (error) {
+        console.error('Model warm-up error:', error);
+        res.status(500).json({ error: 'Error warming up model' });
+    }
+});
 
 server.listen(PORT, () => {
     console.log(`Log analyzer service listening on http://localhost:${PORT}`);
@@ -836,10 +960,26 @@ async function summarizeWithPrompt(prompt) {
     console.log("Attempting to call Ollama for summary...");
 
     try {
+        // ✨ NEW: Use configuration parameters for optimal performance
+        const requestBody = {
+            model: global.MODEL || MODEL,
+            prompt,
+            stream: global.STREAMING !== undefined ? global.STREAMING : false,
+            keep_alive: global.KEEP_ALIVE || "10m",
+            options: {
+                temperature: global.TEMPERATURE || 0.2,
+                top_p: global.TOP_P || 0.8,
+                top_k: global.TOP_K || 20,
+                repeat_penalty: global.REPEAT_PENALTY || 1.1,
+                num_predict: global.NUM_PREDICT || 500,
+                stop: global.STOP_TOKENS || ["---", "###"]
+            }
+        };
+
         const res = await fetch(`${OLLAMA_URL}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: MODEL, prompt, stream: false })
+            body: JSON.stringify(requestBody)
         });
 
         console.log(`Ollama response status: ${res.status} ${res.statusText}`);

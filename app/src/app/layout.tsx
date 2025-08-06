@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Home, Menu, FlaskConical, Github } from "lucide-react";
+import { Home, Menu, FlaskConical, Github, Settings } from "lucide-react";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -16,6 +16,7 @@ export const metadata: Metadata = {
 const navItems = [
   { href: '/', label: 'Dashboard', icon: Home },
   { href: '/testing', label: 'Testing Tools', icon: FlaskConical },
+  { href: '/config', label: 'Ollama Config', icon: Settings },
 ];
 
 export default function RootLayout({
