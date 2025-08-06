@@ -355,7 +355,7 @@ app.get('/status', (req, res) => {
                 top_k: global.TOP_K || 20,
                 repeat_penalty: global.REPEAT_PENALTY || 1.1,
                 num_predict: global.NUM_PREDICT || 500,
-                keep_alive: global.KEEP_ALIVE || "10m",
+                keep_alive: global.KEEP_ALIVE !== undefined ? global.KEEP_ALIVE : "10m",
                 streaming: global.STREAMING !== undefined ? global.STREAMING : false,
                 stop: global.STOP_TOKENS || ["---", "###"]
             },
@@ -787,7 +787,8 @@ app.post('/config', (req, res) => {
         if (config.keep_alive !== undefined && typeof config.keep_alive === 'string') {
             // Validate keep_alive format (e.g., "10m", "5s", "1h", "-1")
             if (config.keep_alive === '-1' || /^\d+[smh]$/.test(config.keep_alive)) {
-                global.KEEP_ALIVE = config.keep_alive;
+                // Convert "-1" string to number for Ollama compatibility
+                global.KEEP_ALIVE = config.keep_alive === '-1' ? -1 : config.keep_alive;
             } else {
                 console.warn('Invalid keep_alive format:', config.keep_alive, 'Must be like "10m", "5s", "1h", or "-1"');
             }
@@ -891,6 +892,9 @@ app.post('/warm-model', async (req, res) => {
     const { model, keep_alive } = req.body;
     
     try {
+        // Handle keep_alive parameter properly
+        const keepAliveValue = keep_alive === '-1' ? -1 : (keep_alive || '10m');
+        
         const response = await fetch(`${OLLAMA_URL}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -898,7 +902,7 @@ app.post('/warm-model', async (req, res) => {
                 model: model || MODEL,
                 prompt: 'warmup',
                 stream: false,
-                keep_alive: keep_alive || '10m',
+                keep_alive: keepAliveValue,
                 options: {
                     num_predict: 1
                 }
@@ -906,10 +910,10 @@ app.post('/warm-model', async (req, res) => {
         });
 
         if (response.ok) {
-            console.log(`Model ${model || MODEL} warmed up with keep_alive: ${keep_alive || '10m'}`);
+            console.log(`Model ${model || MODEL} warmed up with keep_alive: ${keepAliveValue}`);
             res.status(200).json({ 
                 message: 'Model warmed up successfully',
-                keep_alive: keep_alive || '10m'
+                keep_alive: keepAliveValue
             });
         } else {
             res.status(500).json({ error: 'Failed to warm up model' });
@@ -1114,7 +1118,7 @@ async function summarizeWithPrompt(prompt) {
             model: global.MODEL || MODEL,
             prompt,
             stream: global.STREAMING !== undefined ? global.STREAMING : false,
-            keep_alive: global.KEEP_ALIVE || "10m",
+            keep_alive: global.KEEP_ALIVE !== undefined ? global.KEEP_ALIVE : "10m",
             options: {}
         };
 
