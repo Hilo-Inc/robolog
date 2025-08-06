@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Home, FlaskConical, Settings } from "lucide-react";
 import { AskQuestionButton } from "@/components/dashboard/AskQuestionButton";
 import { useChatContext } from "@/contexts/ChatContext";
+import { SheetClose } from "@/components/ui/sheet";
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
@@ -22,21 +23,28 @@ export function MobileSidebarNav() {
     return (
         <>
             <nav className="grid gap-2 text-lg font-medium flex-1">
-                <Link href="/" className="flex items-center gap-2 text-lg font-semibold mb-4">
-                    <Image
-                        src="/images/robolog-logo.png"
-                        alt="Robolog Logo"
-                        width={48}
-                        height={48}
-                        className="h-6 w-6"
-                    />
-                    <span>Robolog AI</span>
-                </Link>
-                {navItems.map(item => (
-                    <Link key={item.href} href={item.href} className="mx-[-0.65rem] flex items-center gap-4 rounded-xl px-3 py-2 text-muted-foreground hover:text-foreground">
-                        <item.icon className="h-5 w-5" />
-                        {item.label}
+                <SheetClose asChild>
+                    <Link href="/" className="flex items-center gap-2 text-lg font-semibold mb-4">
+                        <Image
+                            src="/images/robolog-logo.png"
+                            alt="Robolog Logo"
+                            width={48}
+                            height={48}
+                            className="h-6 w-6"
+                        />
+                        <span>Robolog AI</span>
                     </Link>
+                </SheetClose>
+                {navItems.map(item => (
+                    <SheetClose key={item.href} asChild>
+                        <Link 
+                            href={item.href} 
+                            className="mx-[-0.65rem] flex items-center gap-4 rounded-xl px-3 py-2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <item.icon className="h-5 w-5" />
+                            {item.label}
+                        </Link>
+                    </SheetClose>
                 ))}
             </nav>
             

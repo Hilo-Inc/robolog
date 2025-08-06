@@ -95,12 +95,12 @@ export default function TestingPage() {
     };
 
     return (
-        <div className="w-full max-w-4xl mx-auto text-gray-200">
-            <h1 className="text-3xl font-bold text-cyan-400 mb-6">Testing & Configuration</h1>
+        <div className="w-full max-w-4xl mx-auto text-gray-200 p-4">
+            <h1 className="text-2xl md:text-3xl font-bold text-cyan-400 mb-6">Testing & Configuration</h1>
             
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
-                <h2 className="text-xl font-semibold mb-4">Configure Notifications (Optional)</h2>
-                <div className="flex gap-4">
+            <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg mb-6 md:mb-8">
+                <h2 className="text-lg md:text-xl font-semibold mb-4">Configure Notifications (Optional)</h2>
+                <div className="flex flex-col md:flex-row gap-4">
                     <input
                         type="text"
                         value={webhookUrl}
@@ -108,23 +108,45 @@ export default function TestingPage() {
                         placeholder="Enter your Discord/Slack Webhook URL"
                         className="flex-grow p-2 rounded bg-gray-700 border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-white"
                     />
-                    <button onClick={handleSaveWebhook} className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded">Save Webhook</button>
+                    <button 
+                        onClick={handleSaveWebhook} 
+                        className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded whitespace-nowrap"
+                    >
+                        Save Webhook
+                    </button>
                 </div>
-                {webhookStatus.message && <p className={`mt-2 text-sm ${webhookStatus.isError ? 'text-red-400' : 'text-green-400'}`}>{webhookStatus.message}</p>}
+                {webhookStatus.message && (
+                    <p className={`mt-2 text-sm ${webhookStatus.isError ? 'text-red-400' : 'text-green-400'}`}>
+                        {webhookStatus.message}
+                    </p>
+                )}
             </div>
 
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
-                <h2 className="text-xl font-semibold mb-3">Trigger Test Errors</h2>
-                <div className="flex flex-col gap-4">
-                    <button onClick={handleGenerateErrors} disabled={isGenerating} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded disabled:bg-red-800 disabled:cursor-not-allowed">{isGenerating ? "Generating..." : "Generate Realistic Errors (via Fluent Bit)"}</button>
-                    <button onClick={handleDirectTest} className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">Test Analyzer Directly (Bypass Fluent Bit)</button>
+            <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow-lg mb-6 md:mb-8">
+                <h2 className="text-lg md:text-xl font-semibold mb-3">Trigger Test Errors</h2>
+                <div className="flex flex-col gap-3 md:gap-4">
+                    <button 
+                        onClick={handleGenerateErrors} 
+                        disabled={isGenerating} 
+                        className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded disabled:bg-red-800 disabled:cursor-not-allowed"
+                    >
+                        {isGenerating ? "Generating..." : "Generate Realistic Errors (via Fluent Bit)"}
+                    </button>
+                    <button 
+                        onClick={handleDirectTest} 
+                        className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 px-4 rounded"
+                    >
+                        Test Analyzer Directly (Bypass Fluent Bit)
+                    </button>
                     {/* <button onClick={handleMarkdownTest} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Test Markdown Formatting & Copy-to-Clipboard</button> */}
                 </div>
             </div>
 
-            <div className="bg-gray-950 p-6 rounded-lg shadow-lg border border-gray-700">
-                <h2 className="text-xl font-semibold mb-4">Test Result</h2>
-                <pre className="whitespace-pre-wrap bg-black p-4 rounded text-sm overflow-x-auto min-h-[5rem]">{testResult || "Test results will appear here..."}</pre>
+            <div className="bg-gray-950 p-4 md:p-6 rounded-lg shadow-lg border border-gray-700">
+                <h2 className="text-lg md:text-xl font-semibold mb-4">Test Result</h2>
+                <pre className="whitespace-pre-wrap bg-black p-4 rounded text-sm overflow-x-auto min-h-[5rem]">
+                    {testResult || "Test results will appear here..."}
+                </pre>
             </div>
         </div>
     );

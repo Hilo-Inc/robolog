@@ -41,7 +41,7 @@ export default function RootLayout({
                   <span className="sr-only">Toggle navigation menu</span>
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="flex flex-col">
+              <SheetContent side="left" className="flex flex-col w-[280px] sm:w-[320px]">
                 <MobileSidebarNav />
               </SheetContent>
             </Sheet>

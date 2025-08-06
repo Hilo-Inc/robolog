@@ -40,7 +40,7 @@ const CopyableCodeBlock = ({ code, language = "" }: { code: string; language?: s
                     )}
                 </Button>
             </div>
-            <pre className="bg-gray-900 text-gray-100 p-3 rounded-b-md overflow-x-auto text-sm font-mono border border-t-0">
+            <pre className="bg-gray-900 text-gray-100 p-3 rounded-b-md overflow-x-auto text-xs sm:text-sm font-mono border border-t-0 whitespace-pre">
                 <code>{code}</code>
             </pre>
         </div>
@@ -65,14 +65,15 @@ const InlineCode = ({ code }: { code: string }) => {
     return (
         <span
             onClick={copyToClipboard}
-            className="inline-flex items-center gap-1 bg-gray-800 text-gray-200 px-2 py-1 rounded text-sm font-mono cursor-pointer hover:bg-gray-700 transition-colors"
+            className="inline-flex items-center gap-1 bg-gray-800 text-gray-200 px-2 py-1 rounded text-xs sm:text-sm font-mono cursor-pointer hover:bg-gray-700 transition-colors"
+            style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
             title="Click to copy"
         >
             {code}
             {copied ? (
-                <Check className="h-3 w-3 text-green-400" />
+                <Check className="h-3 w-3 text-green-400 flex-shrink-0" />
             ) : (
-                <Copy className="h-3 w-3 opacity-50" />
+                <Copy className="h-3 w-3 opacity-50 flex-shrink-0" />
             )}
         </span>
     );
@@ -197,15 +198,17 @@ const MarkdownContent = ({ content }: { content: string }) => {
                     const listContent = line.replace(/^- /, '');
                     return (
                         <div key={lineIndex} className="flex items-start gap-2 my-1">
-                            <span className="text-blue-400 mt-1">•</span>
-                            <span>{renderBoldText(listContent)}</span>
+                            <span className="text-blue-400 mt-1 flex-shrink-0">•</span>
+                            <span className="text-sm" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                                {renderBoldText(listContent)}
+                            </span>
                         </div>
                     );
                 }
                 
                 // Regular line with potential bold text
                 return (
-                    <div key={lineIndex}>
+                    <div key={lineIndex} className="text-sm" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                         {renderBoldText(line)}
                         {lineIndex < text.split('\n').length - 1 && <br />}
                     </div>
@@ -218,16 +221,16 @@ const MarkdownContent = ({ content }: { content: string }) => {
         return parts.map((part, index) => {
             if (part.startsWith('**') && part.endsWith('**')) {
                 return (
-                    <strong key={index} className="font-semibold text-white">
+                    <strong key={index} className="font-semibold text-white" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                         {part.slice(2, -2)}
                     </strong>
                 );
             }
-            return part;
+            return <span key={index} style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{part}</span>;
         });
     };
 
-    return <div className="space-y-1">{renderContent()}</div>;
+    return <div className="space-y-1" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{renderContent()}</div>;
 };
 
 const parseReport = (report: string) => {
@@ -282,19 +285,23 @@ export const ReportDisplay = ({ report }: ReportDisplayProps) => {
     const sections = parseReport(report);
 
     return (
-        <div className="space-y-4">
-            {sections.map((section, index) => (
-                <Card key={index} className={getSectionStyle(section.type)}>
-                    <CardHeader>
-                        <CardTitle className="text-sm font-medium">{section.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-sm leading-relaxed">
-                            <MarkdownContent content={section.content} />
-                        </div>
-                    </CardContent>
-                </Card>
-            ))}
+        <div className="w-full">
+            <div className="space-y-4">
+                {sections.map((section, index) => (
+                    <Card key={index} className={`${getSectionStyle(section.type)} mx-0`}>
+                        <CardHeader className="pb-3 px-4 sm:px-6">
+                            <CardTitle className="text-sm font-medium" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                                {section.title}
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-0 px-4 sm:px-6">
+                            <div className="text-sm leading-relaxed" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                                <MarkdownContent content={section.content} />
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
         </div>
     );
 };

@@ -25,7 +25,7 @@ import { ChatModal } from "@/components/dashboard/ChatModal";
 import { AskQuestionButton } from "@/components/dashboard/AskQuestionButton";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Label } from 'recharts';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Calendar, Clock, AlertTriangle } from 'lucide-react';
 import Image from 'next/image';
 
 interface ParsedReport {
@@ -38,6 +38,38 @@ interface ParsedReport {
     timestamp: number;
 }
 
+// Mobile-friendly report card component
+const MobileReportCard = ({ report, onViewDetails }: { 
+    report: ParsedReport; 
+    onViewDetails: (report: ParsedReport) => void;
+}) => (
+    <Card className="mb-3">
+        <CardContent className="p-4">
+            <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Calendar className="h-4 w-4" />
+                    <span>{report.date}</span>
+                    <Clock className="h-4 w-4 ml-2" />
+                    <span>{report.time}</span>
+                </div>
+                <Badge variant={report.topSeverity === 'CRITICAL' || report.topSeverity === 'ERROR' ? 'destructive' : 'default'}>
+                    {report.topSeverity}
+                </Badge>
+            </div>
+            <div className="mb-3">
+                <p className="text-sm line-clamp-2">{report.snippet}</p>
+            </div>
+            <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => onViewDetails(report)}
+                className="w-full"
+            >
+                View Details
+            </Button>
+        </CardContent>
+    </Card>
+);
 
 function getLast12HoursBuckets() {
     const now = new Date();
@@ -53,8 +85,6 @@ function getLast12HoursBuckets() {
     }
     return buckets;
 }
-
-
 
 function parseReportForTable(report: string, index: number): ParsedReport {
     const id = `${Date.now()}-${index}`;
@@ -138,7 +168,6 @@ function parseReportForTable(report: string, index: number): ParsedReport {
     return { id, time, date, topSeverity, snippet, fullReport: report, timestamp };
 }
 
-
 export default function DashboardPage() {
     // ✨ NEW: Initialize state from localStorage on the client side.
     const [reports, setReports] = useState<string[]>(() => {
@@ -173,8 +202,6 @@ export default function DashboardPage() {
             console.error("Failed to save reports to localStorage", error);
         }
     }, [reports]);
-
-
 
     // Fetch Ollama model name from analyzer
     useEffect(() => {
@@ -302,7 +329,6 @@ export default function DashboardPage() {
         reports: b.reports
     }));
 
-
     return (
         <>
             {processingStatus && (
@@ -329,81 +355,133 @@ export default function DashboardPage() {
                     </div>
                 </CardHeader>
                 <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead className="w-[140px]">Date & Time</TableHead>
-                                <TableHead>Severity</TableHead>
-                                <TableHead>Summary</TableHead>
-                                <TableHead className="text-right">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {recentReports.length > 0 ? recentReports.map((report) => (
-                                <TableRow key={report.id}>
-                                    <TableCell className="font-mono">
-                                        <div className="text-xs">{report.date}</div>
-                                        <div>{report.time}</div>
-                                    </TableCell>
-                                    <TableCell>
-                                        <Badge variant={report.topSeverity === 'CRITICAL' || report.topSeverity === 'ERROR' ? 'destructive' : 'default'}>
-                                            {report.topSeverity}
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell className="max-w-sm truncate">{report.snippet}</TableCell>
-                                    <TableCell className="text-right">
-                                        <Button variant="outline" size="sm" onClick={() => setSelectedReport(report)}>
-                                            View Details
+                    {/* Mobile view - Card layout */}
+                    <div className="md:hidden">
+                        {recentReports.length > 0 ? (
+                            <div className="space-y-3">
+                                {recentReports.map((report) => (
+                                    <MobileReportCard
+                                        key={report.id}
+                                        report={report}
+                                        onViewDetails={setSelectedReport}
+                                    />
+                                ))}
+                                
+                                {oldReports.length > 0 && (
+                                    <div className="mt-4">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setShowOldIssues(!showOldIssues)}
+                                            className="w-full flex items-center justify-center gap-2"
+                                        >
+                                            {showOldIssues ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                            {showOldIssues ? 'Hide' : 'Show'} older issues ({oldReports.length} items older than 12 hours)
+                                            {showOldIssues ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                         </Button>
-                                    </TableCell>
-                                </TableRow>
-                            )) : (
+                                        
+                                        {showOldIssues && (
+                                            <div className="space-y-3 mt-3">
+                                                {oldReports.map((report) => (
+                                                    <MobileReportCard
+                                                        key={report.id}
+                                                        report={report}
+                                                        onViewDetails={setSelectedReport}
+                                                    />
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="h-24 text-center flex items-center justify-center text-muted-foreground">
+                                <div className="text-center">
+                                    <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                                    <p>No recent reports. Go to the Testing Tools page to generate some errors.</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Desktop view - Table layout */}
+                    <div className="hidden md:block">
+                        <Table>
+                            <TableHeader>
                                 <TableRow>
-                                    <TableCell colSpan={4} className="h-24 text-center">
-                                        No recent reports. Go to the Testing Tools page to generate some errors.
-                                    </TableCell>
+                                    <TableHead className="w-[140px]">Date & Time</TableHead>
+                                    <TableHead>Severity</TableHead>
+                                    <TableHead>Summary</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
-                            )}
-                            
-                            {oldReports.length > 0 && (
-                                <>
-                                    <TableRow className="bg-muted/50">
-                                        <TableCell colSpan={4}>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={() => setShowOldIssues(!showOldIssues)}
-                                                className="w-full flex items-center justify-center gap-2"
-                                            >
-                                                {showOldIssues ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                                {showOldIssues ? 'Hide' : 'Show'} older issues ({oldReports.length} items older than 12 hours)
-                                                {showOldIssues ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </TableHeader>
+                            <TableBody>
+                                {recentReports.length > 0 ? recentReports.map((report) => (
+                                    <TableRow key={report.id}>
+                                        <TableCell className="font-mono">
+                                            <div className="text-xs">{report.date}</div>
+                                            <div>{report.time}</div>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge variant={report.topSeverity === 'CRITICAL' || report.topSeverity === 'ERROR' ? 'destructive' : 'default'}>
+                                                {report.topSeverity}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="max-w-sm truncate">{report.snippet}</TableCell>
+                                        <TableCell className="text-right">
+                                            <Button variant="outline" size="sm" onClick={() => setSelectedReport(report)}>
+                                                View Details
                                             </Button>
                                         </TableCell>
                                     </TableRow>
-                                    {showOldIssues && oldReports.map((report) => (
-                                        <TableRow key={report.id} className="opacity-60">
-                                            <TableCell className="font-mono">
-                                                <div className="text-xs">{report.date}</div>
-                                                <div>{report.time}</div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <Badge variant={report.topSeverity === 'CRITICAL' || report.topSeverity === 'ERROR' ? 'destructive' : 'default'}>
-                                                    {report.topSeverity}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell className="max-w-sm truncate">{report.snippet}</TableCell>
-                                            <TableCell className="text-right">
-                                                <Button variant="outline" size="sm" onClick={() => setSelectedReport(report)}>
-                                                    View Details
+                                )) : (
+                                    <TableRow>
+                                        <TableCell colSpan={4} className="h-24 text-center">
+                                            No recent reports. Go to the Testing Tools page to generate some errors.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                                
+                                {oldReports.length > 0 && (
+                                    <>
+                                        <TableRow className="bg-muted/50">
+                                            <TableCell colSpan={4}>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setShowOldIssues(!showOldIssues)}
+                                                    className="w-full flex items-center justify-center gap-2"
+                                                >
+                                                    {showOldIssues ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                                    {showOldIssues ? 'Hide' : 'Show'} older issues ({oldReports.length} items older than 12 hours)
+                                                    {showOldIssues ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                                 </Button>
                                             </TableCell>
                                         </TableRow>
-                                    ))}
-                                </>
-                            )}
-                        </TableBody>
-                    </Table>
+                                        {showOldIssues && oldReports.map((report) => (
+                                            <TableRow key={report.id} className="opacity-60">
+                                                <TableCell className="font-mono">
+                                                    <div className="text-xs">{report.date}</div>
+                                                    <div>{report.time}</div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant={report.topSeverity === 'CRITICAL' || report.topSeverity === 'ERROR' ? 'destructive' : 'default'}>
+                                                        {report.topSeverity}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="max-w-sm truncate">{report.snippet}</TableCell>
+                                                <TableCell className="text-right">
+                                                    <Button variant="outline" size="sm" onClick={() => setSelectedReport(report)}>
+                                                        View Details
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 </CardContent>
             </Card>
 
@@ -412,23 +490,26 @@ export default function DashboardPage() {
                     setSelectedReport(null);
                 }
             }}>
-                <DialogContent className="sm:max-w-[95vw] h-[90vh] flex flex-col">
-                    <DialogHeader className="relative">
+                <DialogContent className="sm:max-w-[95vw] h-[90vh] flex flex-col p-0 sm:p-6">
+                    <DialogHeader className="relative px-4 sm:px-0">
                         <DialogTitle>AI Report Details</DialogTitle>
                         <DialogDescription>
                             Full AI analysis and follow-up prompt for report generated at {selectedReport?.time}.
                         </DialogDescription>
-                        {/* Ask Question Button */}
-                        <AskQuestionButton
-                            onClick={() => setShowChatModal(true)}
-                            className="absolute bottom-0 right-0"
-                        />
+                        {/* Ask Question Button - moved to next line on mobile */}
+                        <div className="mt-4 sm:absolute sm:bottom-0 sm:right-0 sm:mt-0">
+                            <AskQuestionButton
+                                onClick={() => setShowChatModal(true)}
+                            />
+                        </div>
                     </DialogHeader>
                     
-                    {/* Full-width report display */}
+                    {/* Full-width report display with horizontal scroll */}
                     <div className="flex-1 overflow-hidden">
-                        <ScrollArea className="h-full pr-4">
-                            <ReportDisplay report={selectedReport?.fullReport ?? ''} />
+                        <ScrollArea className="h-full">
+                            <div className="px-4 sm:px-0">
+                                <ReportDisplay report={selectedReport?.fullReport ?? ''} />
+                            </div>
                         </ScrollArea>
                     </div>
                 </DialogContent>
@@ -441,6 +522,7 @@ export default function DashboardPage() {
                 report={selectedReport?.fullReport ?? ''}
                 reportId={selectedReport?.id ?? ''}
             />
+            
             <Card className="mb-6">
                 <CardHeader>
                     <CardTitle>Errors in Last 12 Hours</CardTitle>

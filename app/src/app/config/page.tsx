@@ -252,16 +252,18 @@ export default function ConfigPage() {
     };
 
     return (
-        <div className="container mx-auto p-6 space-y-6">
-            <div className="flex items-center gap-3 mb-6">
-                <Settings className="h-8 w-8" />
-                <div>
-                    <h1 className="text-3xl font-bold">Ollama Configuration</h1>
-                    <p className="text-muted-foreground">
-                        Optimize AI model performance and behavior for log analysis
-                    </p>
+        <div className="container mx-auto p-4 md:p-6 space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center gap-3 mb-6">
+                <div className="flex items-center gap-3">
+                    <Settings className="h-6 w-6 md:h-8 md:w-8" />
+                    <div>
+                        <h1 className="text-2xl md:text-3xl font-bold">Ollama Configuration</h1>
+                        <p className="text-muted-foreground text-sm md:text-base">
+                            Optimize AI model performance and behavior for log analysis
+                        </p>
+                    </div>
                 </div>
-                <div className="ml-auto">
+                <div className="md:ml-auto">
                     <Badge variant={isConnected ? "default" : "destructive"}>
                         {isConnected ? <CheckCircle className="h-3 w-3 mr-1" /> : <AlertCircle className="h-3 w-3 mr-1" />}
                         {isConnected ? "Connected" : "Disconnected"}
@@ -276,22 +278,26 @@ export default function ConfigPage() {
             )}
 
             <Tabs defaultValue="performance" className="space-y-6">
-                <TabsList className="grid w-full grid-cols-4">
-                    <TabsTrigger value="performance" className="flex items-center gap-2">
-                        <Zap className="h-4 w-4" />
-                        Performance
+                <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
+                    <TabsTrigger value="performance" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                        <Zap className="h-3 w-3 md:h-4 md:w-4" />
+                        <span className="hidden sm:inline">Performance</span>
+                        <span className="sm:hidden">Perf</span>
                     </TabsTrigger>
-                    <TabsTrigger value="model" className="flex items-center gap-2">
-                        <Cpu className="h-4 w-4" />
-                        Model
+                    <TabsTrigger value="model" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                        <Cpu className="h-3 w-3 md:h-4 md:w-4" />
+                        <span className="hidden sm:inline">Model</span>
+                        <span className="sm:hidden">Model</span>
                     </TabsTrigger>
-                    <TabsTrigger value="advanced" className="flex items-center gap-2">
-                        <Settings className="h-4 w-4" />
-                        Advanced
+                    <TabsTrigger value="advanced" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                        <Settings className="h-3 w-3 md:h-4 md:w-4" />
+                        <span className="hidden sm:inline">Advanced</span>
+                        <span className="sm:hidden">Adv</span>
                     </TabsTrigger>
-                    <TabsTrigger value="system" className="flex items-center gap-2">
-                        <Clock className="h-4 w-4" />
-                        System
+                    <TabsTrigger value="system" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                        <Clock className="h-3 w-3 md:h-4 md:w-4" />
+                        <span className="hidden sm:inline">System</span>
+                        <span className="sm:hidden">Sys</span>
                     </TabsTrigger>
                 </TabsList>
 
@@ -304,7 +310,7 @@ export default function ConfigPage() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 gap-6">
                                 <div className="space-y-4">
                                     <Label htmlFor="keep-alive" className="text-base font-medium">
                                         Model Keep-Alive
@@ -346,12 +352,12 @@ export default function ConfigPage() {
                                 </div>
                             </div>
 
-                            <div className="flex gap-4">
-                                <Button onClick={warmUpModel} disabled={status === 'loading'} variant="outline">
+                            <div className="flex flex-col sm:flex-row gap-4">
+                                <Button onClick={warmUpModel} disabled={status === 'loading'} variant="outline" className="flex-1">
                                     <Zap className="h-4 w-4 mr-2" />
                                     Warm Up Model
                                 </Button>
-                                <Button onClick={testModel} disabled={status === 'loading'} variant="outline">
+                                <Button onClick={testModel} disabled={status === 'loading'} variant="outline" className="flex-1">
                                     <CheckCircle className="h-4 w-4 mr-2" />
                                     Test Model
                                 </Button>
@@ -390,7 +396,7 @@ export default function ConfigPage() {
                                 </Select>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 gap-6">
                                 <div className="space-y-4">
                                     <Label className="text-base font-medium">
                                         Temperature: {config.temperature}
@@ -438,7 +444,7 @@ export default function ConfigPage() {
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 gap-6">
                                 <div className="space-y-4">
                                     <Label className="text-base font-medium">
                                         Top-P: {config.top_p}
@@ -551,12 +557,12 @@ export default function ConfigPage() {
                 </TabsContent>
             </Tabs>
 
-            <div className="flex justify-between items-center pt-6 border-t">
-                <Button onClick={resetToDefaults} variant="outline" className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-6 border-t">
+                <Button onClick={resetToDefaults} variant="outline" className="flex items-center gap-2 w-full sm:w-auto">
                     <RotateCcw className="h-4 w-4" />
                     Reset to Defaults
                 </Button>
-                <Button onClick={saveConfiguration} disabled={status === 'loading'} className="flex items-center gap-2">
+                <Button onClick={saveConfiguration} disabled={status === 'loading'} className="flex items-center gap-2 w-full sm:w-auto">
                     <Save className="h-4 w-4" />
                     {status === 'loading' ? 'Saving...' : 'Save Configuration'}
                 </Button>
