@@ -211,11 +211,29 @@ export default function DashboardPage() {
         });
 
         socket.on('processing-started', (data: { count: number, logs: { message: string, container: string }[] }) => {
+            console.log('Processing started event received:', data);
             const logSnippets = data.logs.map(log => `- [${log.container}] ${log.message.substring(0, 80)}...`).join('\n');
             setProcessingStatus(`🤖 Analyzer has received ${data.count} new error(s) and is generating a report. This may take a moment...\n\nLogs received:\n${logSnippets}`);
+            
+            // Fallback: Clear processing status after 2 minutes if no report is received
+            const timeoutId = setTimeout(() => {
+                console.log('Processing timeout reached, clearing status');
+                setProcessingStatus(null);
+            }, 120000); // 2 minutes
+            
+            // Store timeout ID to clear it if we receive a report
+            (window as any).processingTimeout = timeoutId;
         });
 
         socket.on("new-summary", (newReport: string) => {
+            console.log('New summary received, clearing processing status');
+            
+            // Clear the timeout if we receive a report
+            if ((window as any).processingTimeout) {
+                clearTimeout((window as any).processingTimeout);
+                (window as any).processingTimeout = null;
+            }
+            
             // ✅ This update will trigger the localStorage persistence effect.
             setReports(prev => [newReport, ...prev]);
             setProcessingStatus(null);
@@ -263,9 +281,12 @@ export default function DashboardPage() {
     return (
         <>
             {processingStatus && (
-                <Card className="mb-4 bg-blue-900/50 border-blue-500">
+                <Card className="mb-4 bg-blue-900/50 border-blue-500 animate-pulse">
                     <CardHeader>
-                        <CardTitle className="text-lg text-blue-300">Analysis in Progress</CardTitle>
+                        <CardTitle className="text-lg text-blue-300 flex items-center gap-2">
+                            <div className="w-4 h-4 bg-blue-400 rounded-full animate-bounce"></div>
+                            Analysis in Progress
+                        </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <pre className="whitespace-pre-wrap font-mono text-sm text-blue-200">
