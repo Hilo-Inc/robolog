@@ -571,7 +571,7 @@ app.post('/test-chunking', (req, res) => {
     });
 });
 
-// ✨ NEW: Endpoint to generate test messages for webhook testing
+// ✨ NEW: Endpoint to generate test messages with enhanced markdown formatting for webhook testing
 app.post('/generate-realistic-errors', (req, res) => {
     const testMessage = `📄 **Raw Logs in this Batch:**
 \`\`\`
@@ -588,30 +588,73 @@ app.post('/generate-realistic-errors', (req, res) => {
 \`\`\`
 
 🤖 **AI Log Analysis (${LANGUAGE})**:
+
 🚨 **CRITICAL ISSUES**
 - **Database Connection Crisis**: Connection pool completely exhausted (50/50 connections used). This will block all database operations and cause application failures.
+- **Impact**: Complete application downtime, no user access
+- **Root Cause**: Connection pool limit reached, possible connection leaks
+- **Immediate Action**: 
+\`\`\`bash
+# Check current connections
+netstat -an | grep :5432 | wc -l
+# Restart application to reset pool
+systemctl restart your-app-service
+# Increase pool size in config
+\`\`\`
+
 - **Authentication System Down**: Complete authentication service outage is preventing all user logins and access.
-- **Storage Emergency**: Disk space at 95% capacity with only 50MB remaining in /var/log. System may crash when logs fill remaining space.
+- **Impact**: All user authentication blocked
+- **Immediate Action**: \`systemctl restart auth-service\` and verify \`systemctl status auth-service\`
+
+- **Storage Emergency**: Disk space at 95% capacity with only 50MB remaining in \`/var/log\`.
+- **Immediate Action**:
+\`\`\`bash
+# Check disk usage
+df -h /var/log
+# Rotate logs immediately
+logrotate -f /etc/logrotate.conf
+# Clean old logs
+find /var/log -name "*.log.*.gz" -mtime +7 -delete
+\`\`\`
 
 ⚠️ **WARNINGS**  
-- **Memory Pressure**: System memory at 89% usage (7.1GB/8GB) - approaching critical threshold
-- **Performance Degradation**: Redis connection latency at 2.5s average indicates serious performance issues
-- **Network Issues**: 15% packet loss on primary network interface affecting connectivity
+- **Memory Pressure**: System memory at **89% usage** (7.1GB/8GB) - approaching critical threshold
+- **Details**: Risk of OOM killer activation
+- **Preventive Action**: Monitor with \`free -h\` and consider scaling resources
+
+- **Performance Degradation**: Redis connection latency at **2.5s average** indicates serious performance issues
+- **Preventive Action**:
+\`\`\`bash
+redis-cli ping
+redis-cli info memory
+redis-cli slowlog get 10
+\`\`\`
+
+- **Network Issues**: **15% packet loss** on primary network interface affecting connectivity
+- **Preventive Action**: \`ping -c 100 8.8.8.8\` and \`ethtool eth0\`
 
 📊 **SUMMARY BY APPLICATION**
-**NGINX**: Multiple critical infrastructure failures including backend connectivity and SSL certificate expiration
-**APPLICATION**: Database and payment processing failures, authentication service dependency issues  
-**SYSTEM**: Resource exhaustion across memory, disk, and network infrastructure
+- **NGINX**: 3 errors - backend connectivity and SSL certificate issues
+- **APPLICATION**: 4 critical issues - database, authentication, payment processing failures  
+- **SYSTEM**: 3 warnings - resource exhaustion across memory, disk, and network
 
 🔧 **RECOMMENDED ACTIONS**
-1. **IMMEDIATE**: Increase database connection pool limit and restart application services
-2. **URGENT**: Free disk space by rotating/compressing old logs, add monitoring alerts at 80% threshold  
-3. **HIGH PRIORITY**: Investigate authentication service outage and implement fallback mechanisms
-4. **CRITICAL**: Renew SSL certificate for example.com domain immediately
-5. **MONITOR**: Set up automated alerts for memory usage >85%, network packet loss >5%
-6. **OPTIMIZE**: Review Redis performance and consider connection pooling improvements
+1. **Priority 1 (Immediate)**:
+   - Restart critical services: \`systemctl restart app-service auth-service\`
+   - Free disk space and rotate logs
+   - Renew SSL certificate for \`example.com\`
 
-This analysis indicates a cascading infrastructure failure requiring immediate attention to prevent complete system outage.`;
+2. **Priority 2 (Soon)**:
+   - Scale database connection pool in \`/etc/app/database.conf\`
+   - Set up monitoring alerts for **memory >85%**, **disk >80%**
+   - Investigate Redis performance bottlenecks
+
+3. **Priority 3 (Maintenance)**:
+   - Implement log rotation automation
+   - Add network monitoring and packet loss alerts
+   - Review application connection handling patterns
+
+This analysis indicates a **cascading infrastructure failure** requiring immediate attention to prevent complete system outage.`;
 
     const platform = req.body.platform || WEBHOOK_PLATFORM;
     
@@ -906,28 +949,44 @@ INSTRUCTIONS:
 4. Map issues to their likely root causes and suggest shell commands or config changes to fix or diagnose them
 5. Highlight the most urgent issues first — those that may impact uptime, data integrity, or customer experience
 
-OUTPUT FORMAT:
-🚨 CRITICAL ISSUES
-- Include errors or conditions that require immediate attention or could cause system downtime
-- Include shell commands where helpful
+OUTPUT FORMAT (use markdown formatting):
+🚨 **CRITICAL ISSUES**
+- **Issue Name**: Brief description of the problem
+- **Impact**: What this affects (uptime, performance, etc.)
+- **Root Cause**: Likely cause based on log analysis
+- **Immediate Action**: Use code blocks for commands:
+\`\`\`bash
+systemctl restart service-name
+\`\`\`
 
-⚠️ WARNINGS
-- Include performance degradation or risk-prone conditions that should be addressed
-- Include shell commands where helpful
+⚠️ **WARNINGS**
+- **Issue Name**: Brief description
+- **Details**: More context about the warning
+- **Preventive Action**: Commands or configs to prevent escalation:
+\`\`\`bash
+df -h
+systemctl status service-name
+\`\`\`
 
-📊 SUMMARY BY APPLICATION
-- Break down log issues by service or application name, summarizing severity and frequency of problems
+📊 **SUMMARY BY APPLICATION**
+- **ServiceName**: X errors, Y warnings - brief status summary
+- **SystemName**: Status and key metrics
 
-🔧 RECOMMENDED ACTIONS
-- Provide specific steps to resolve the issues
-- Prefer shell commands, config file changes, or monitoring enhancements
-- Format as bullet points
+🔧 **RECOMMENDED ACTIONS**
+1. **Priority 1 (Immediate)**:
+   - Action description with inline commands like \`systemctl restart nginx\`
+   - Use \`\`\`bash code blocks for multi-line commands
+2. **Priority 2 (Soon)**:
+   - Monitoring and prevention steps
+3. **Priority 3 (Maintenance)**:
+   - Long-term improvements
 
 GUIDELINES:
+- Use **bold** for emphasis on important terms
+- Use \`inline code\` for single commands, file paths, and config values
+- Use \`\`\`bash code blocks for multi-line commands and scripts
 - Be concise and technically accurate
 - Prioritize by business impact
-- Avoid redundancy
-- Use code blocks for terminal commands with short descriptions
 - Respond in ${LANGUAGE}
 
 STRUCTURED LOG DATA:
@@ -937,7 +996,7 @@ SYSTEM RESOURCES:
 ${diskReport()}
 Free memory: ${Math.round(os.freemem() / 1024 / 1024)}MB
 
-Provide a structured analysis following the format above in ${LANGUAGE}:`;
+Provide a structured analysis following the markdown format above in ${LANGUAGE}:`;
 
     return prompt;
 }

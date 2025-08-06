@@ -244,6 +244,20 @@ export default function DashboardPage() {
         };
     }, []);
 
+    // Listen for test markdown reports
+    useEffect(() => {
+        const handleTestMarkdownReport = (event: any) => {
+            const { report } = event.detail;
+            console.log('Test markdown report received:', report);
+            setReports(prev => [report, ...prev]);
+        };
+
+        window.addEventListener('test-markdown-report', handleTestMarkdownReport);
+        return () => {
+            window.removeEventListener('test-markdown-report', handleTestMarkdownReport);
+        };
+    }, []);
+
     const parsedReports = reports.map(parseReportForTable);
 
     // Separate recent and old reports (12 hours = 12 * 60 * 60 * 1000 ms)

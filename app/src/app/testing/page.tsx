@@ -47,6 +47,32 @@ export default function TestingPage() {
         }
     };
 
+    const handleMarkdownTest = async () => {
+        setTestResult("Generating markdown-formatted test report...");
+        try {
+            const response = await fetch("/analyzer/generate-realistic-errors", { method: "POST" });
+            const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(`API call failed: ${response.statusText}`);
+            }
+            
+            // Simulate receiving this as a websocket message
+            if (window.dispatchEvent) {
+                const event = new CustomEvent('test-markdown-report', {
+                    detail: { report: result.message }
+                });
+                window.dispatchEvent(event);
+            }
+            
+            setTestResult(`Markdown test report generated! Check the Dashboard - a new report with enhanced formatting and copyable code blocks should appear.\n\nReport length: ${result.message.length} characters`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+            console.error("Failed to generate markdown test:", errorMessage);
+            setTestResult(`Error: Could not generate markdown test.\n\n${errorMessage}`);
+        }
+    };
+
     const handleSaveWebhook = async () => {
         setWebhookStatus({ message: "Saving...", isError: false });
         try {
@@ -92,6 +118,7 @@ export default function TestingPage() {
                 <div className="flex flex-col gap-4">
                     <button onClick={handleGenerateErrors} disabled={isGenerating} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded disabled:bg-red-800 disabled:cursor-not-allowed">{isGenerating ? "Generating..." : "Generate Realistic Errors (via Fluent Bit)"}</button>
                     <button onClick={handleDirectTest} className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">Test Analyzer Directly (Bypass Fluent Bit)</button>
+                    <button onClick={handleMarkdownTest} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Test Markdown Formatting & Copy-to-Clipboard</button>
                 </div>
             </div>
 

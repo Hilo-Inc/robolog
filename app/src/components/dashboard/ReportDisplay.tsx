@@ -1,7 +1,227 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Copy, Check } from "lucide-react";
+import { useState } from "react";
 
 type ReportDisplayProps = {
     report: string;
+};
+
+// Component for copyable code blocks
+const CopyableCodeBlock = ({ code, language = "" }: { code: string; language?: string }) => {
+    const [copied, setCopied] = useState(false);
+
+    const copyToClipboard = async () => {
+        try {
+            await navigator.clipboard.writeText(code);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy text: ', err);
+        }
+    };
+
+    return (
+        <div className="relative group my-2">
+            <div className="flex items-center justify-between bg-gray-800 text-gray-200 px-3 py-2 rounded-t-md border">
+                <span className="text-xs font-medium text-gray-400">
+                    {language || 'Code'}
+                </span>
+                <Button
+                    onClick={copyToClipboard}
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 text-gray-400 hover:text-white"
+                >
+                    {copied ? (
+                        <Check className="h-3 w-3" />
+                    ) : (
+                        <Copy className="h-3 w-3" />
+                    )}
+                </Button>
+            </div>
+            <pre className="bg-gray-900 text-gray-100 p-3 rounded-b-md overflow-x-auto text-sm font-mono border border-t-0">
+                <code>{code}</code>
+            </pre>
+        </div>
+    );
+};
+
+// Component for inline code
+const InlineCode = ({ code }: { code: string }) => {
+    const [copied, setCopied] = useState(false);
+
+    const copyToClipboard = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        try {
+            await navigator.clipboard.writeText(code);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1000);
+        } catch (err) {
+            console.error('Failed to copy text: ', err);
+        }
+    };
+
+    return (
+        <span
+            onClick={copyToClipboard}
+            className="inline-flex items-center gap-1 bg-gray-800 text-gray-200 px-2 py-1 rounded text-sm font-mono cursor-pointer hover:bg-gray-700 transition-colors"
+            title="Click to copy"
+        >
+            {code}
+            {copied ? (
+                <Check className="h-3 w-3 text-green-400" />
+            ) : (
+                <Copy className="h-3 w-3 opacity-50" />
+            )}
+        </span>
+    );
+};
+
+// Enhanced markdown-like content renderer
+const MarkdownContent = ({ content }: { content: string }) => {
+    const renderContent = () => {
+        const parts = [];
+        let currentIndex = 0;
+
+        // Regular expressions for different markdown elements
+        const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
+        const inlineCodeRegex = /`([^`]+)`/g;
+        const boldRegex = /\*\*(.*?)\*\*/g;
+        const listItemRegex = /^- (.+)$/gm;
+
+        // First, handle code blocks
+        let match;
+        const codeBlocks: { start: number; end: number; language: string; code: string }[] = [];
+        
+        while ((match = codeBlockRegex.exec(content)) !== null) {
+            codeBlocks.push({
+                start: match.index,
+                end: match.index + match[0].length,
+                language: match[1] || 'bash',
+                code: match[2].trim()
+            });
+        }
+
+        // Process the content, replacing markdown elements
+        codeBlocks.forEach((block, blockIndex) => {
+            // Add text before this code block
+            if (currentIndex < block.start) {
+                const textBeforeBlock = content.slice(currentIndex, block.start);
+                parts.push(
+                    <span key={`text-${blockIndex}`}>
+                        {renderInlineMarkdown(textBeforeBlock)}
+                    </span>
+                );
+            }
+
+            // Add the code block
+            parts.push(
+                <CopyableCodeBlock
+                    key={`block-${blockIndex}`}
+                    code={block.code}
+                    language={block.language}
+                />
+            );
+
+            currentIndex = block.end;
+        });
+
+        // Add remaining text after last code block
+        if (currentIndex < content.length) {
+            const remainingText = content.slice(currentIndex);
+            parts.push(
+                <span key="remaining">
+                    {renderInlineMarkdown(remainingText)}
+                </span>
+            );
+        }
+
+        return parts.length > 0 ? parts : [renderInlineMarkdown(content)];
+    };
+
+    const renderInlineMarkdown = (text: string) => {
+        const parts = [];
+        let currentIndex = 0;
+
+        // Handle inline code first
+        const inlineCodeMatches = [...text.matchAll(/`([^`]+)`/g)];
+        
+        inlineCodeMatches.forEach((match, index) => {
+            if (match.index !== undefined) {
+                // Add text before inline code
+                if (currentIndex < match.index) {
+                    const textBefore = text.slice(currentIndex, match.index);
+                    parts.push(
+                        <span key={`text-${index}`}>
+                            {renderOtherMarkdown(textBefore)}
+                        </span>
+                    );
+                }
+
+                // Add inline code
+                parts.push(
+                    <InlineCode key={`code-${index}`} code={match[1]} />
+                );
+
+                currentIndex = match.index + match[0].length;
+            }
+        });
+
+        // Add remaining text
+        if (currentIndex < text.length) {
+            const remainingText = text.slice(currentIndex);
+            parts.push(
+                <span key="remaining">
+                    {renderOtherMarkdown(remainingText)}
+                </span>
+            );
+        }
+
+        return parts.length > 0 ? parts : [renderOtherMarkdown(text)];
+    };
+
+    const renderOtherMarkdown = (text: string) => {
+        // Handle bold text and list items
+        return text
+            .split('\n')
+            .map((line, lineIndex) => {
+                // Handle list items
+                if (line.match(/^- /)) {
+                    const listContent = line.replace(/^- /, '');
+                    return (
+                        <div key={lineIndex} className="flex items-start gap-2 my-1">
+                            <span className="text-blue-400 mt-1">•</span>
+                            <span>{renderBoldText(listContent)}</span>
+                        </div>
+                    );
+                }
+                
+                // Regular line with potential bold text
+                return (
+                    <div key={lineIndex}>
+                        {renderBoldText(line)}
+                        {lineIndex < text.split('\n').length - 1 && <br />}
+                    </div>
+                );
+            });
+    };
+
+    const renderBoldText = (text: string) => {
+        const parts = text.split(/(\*\*.*?\*\*)/g);
+        return parts.map((part, index) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+                return (
+                    <strong key={index} className="font-semibold text-white">
+                        {part.slice(2, -2)}
+                    </strong>
+                );
+            }
+            return part;
+        });
+    };
+
+    return <div className="space-y-1">{renderContent()}</div>;
 };
 
 const parseReport = (report: string) => {
@@ -63,9 +283,9 @@ export const ReportDisplay = ({ report }: ReportDisplayProps) => {
                         <CardTitle className="text-sm font-medium">{section.title}</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">
-                            {section.content}
-                        </pre>
+                        <div className="text-sm leading-relaxed">
+                            <MarkdownContent content={section.content} />
+                        </div>
                     </CardContent>
                 </Card>
             ))}
