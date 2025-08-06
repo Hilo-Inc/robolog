@@ -132,25 +132,56 @@ export default function ConfigPage() {
     const saveConfiguration = async () => {
         setStatus('loading');
         try {
+            // Validate configuration before sending
+            const configPayload = {
+                ...config,
+                stop: config.stop_tokens.split(',').map(s => s.trim()).filter(s => s)
+            };
+
+            // Basic client-side validation
+            if (configPayload.temperature < 0 || configPayload.temperature > 2) {
+                setStatus('error');
+                setMessage('Temperature must be between 0 and 2');
+                setTimeout(() => {
+                    setStatus('idle');
+                    setMessage('');
+                }, 3000);
+                return;
+            }
+
+            if (configPayload.top_p < 0 || configPayload.top_p > 1) {
+                setStatus('error');
+                setMessage('Top P must be between 0 and 1');
+                setTimeout(() => {
+                    setStatus('idle');
+                    setMessage('');
+                }, 3000);
+                return;
+            }
+
+            console.log('Sending configuration:', configPayload);
+
             const response = await fetch('/analyzer/config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...config,
-                    stop: config.stop_tokens.split(',').map(s => s.trim()).filter(s => s)
-                })
+                body: JSON.stringify(configPayload)
             });
+
+            const result = await response.json();
 
             if (response.ok) {
                 setStatus('success');
                 setMessage('Configuration saved successfully!');
+                console.log('Configuration update result:', result);
             } else {
                 setStatus('error');
-                setMessage('Failed to save configuration');
+                setMessage(`Failed to save: ${result.error || 'Unknown error'}`);
+                console.error('Configuration update failed:', result);
             }
         } catch (error) {
+            console.error('Error saving configuration:', error);
             setStatus('error');
-            setMessage('Error connecting to analyzer');
+            setMessage(`Error: ${error instanceof Error ? error.message : 'Failed to connect to analyzer'}`);
         }
 
         setTimeout(() => {

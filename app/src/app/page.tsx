@@ -84,10 +84,20 @@ function parseReportForTable(report: string, index: number): ParsedReport {
         time = reportDate.toLocaleTimeString();
     }
 
+    // Improved severity detection based on actual AI report structure
     let topSeverity: ParsedReport['topSeverity'] = 'UNKNOWN';
-    if (report.includes('CRITICAL')) topSeverity = 'CRITICAL';
-    else if (report.includes('ERROR')) topSeverity = 'ERROR';
-    else if (report.includes('WARNING')) topSeverity = 'WARNING';
+    
+    // Check for section headers with emojis (highest priority first)
+    if (report.includes('🚨') || report.match(/\*\*CRITICAL\s+ISSUES?\*\*/i)) {
+        topSeverity = 'CRITICAL';
+    } else if (report.includes('❌') || report.match(/\*\*ERROR\s+ISSUES?\*\*/i)) {
+        topSeverity = 'ERROR';
+    } else if (report.includes('⚠️') || report.match(/\*\*WARNINGS?\*\*/i)) {
+        topSeverity = 'WARNING';
+    } else if (report.includes('📊') || report.includes('🤖') || report.includes('🔧')) {
+        // If we only have summary/analysis/actions sections, default to warning
+        topSeverity = 'WARNING';
+    }
 
     // Improved snippet extraction - get meaningful content instead of just titles
     let snippet = "Could not generate summary snippet.";

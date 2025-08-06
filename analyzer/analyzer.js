@@ -732,23 +732,113 @@ app.get('/ollama/models', async (req, res) => {
 app.post('/config', (req, res) => {
     try {
         const config = req.body;
+        console.log('Received configuration update:', config);
         
-        // Update global configuration
-        if (config.model) global.MODEL = config.model;
-        if (config.temperature !== undefined) global.TEMPERATURE = config.temperature;
-        if (config.top_p !== undefined) global.TOP_P = config.top_p;
-        if (config.top_k !== undefined) global.TOP_K = config.top_k;
-        if (config.repeat_penalty !== undefined) global.REPEAT_PENALTY = config.repeat_penalty;
-        if (config.num_predict !== undefined) global.NUM_PREDICT = config.num_predict;
-        if (config.keep_alive !== undefined) global.KEEP_ALIVE = config.keep_alive;
-        if (config.streaming !== undefined) global.STREAMING = config.streaming;
-        if (config.stop && Array.isArray(config.stop)) global.STOP_TOKENS = config.stop;
+        // Validate and update global configuration with proper type conversion and bounds checking
+        if (config.model && typeof config.model === 'string') {
+            global.MODEL = config.model;
+        }
+        
+        if (config.temperature !== undefined) {
+            const temp = parseFloat(config.temperature);
+            if (!isNaN(temp) && temp >= 0 && temp <= 2) {
+                global.TEMPERATURE = temp;
+            } else {
+                console.warn('Invalid temperature value:', config.temperature, 'Must be between 0 and 2');
+            }
+        }
+        
+        if (config.top_p !== undefined) {
+            const topP = parseFloat(config.top_p);
+            if (!isNaN(topP) && topP >= 0 && topP <= 1) {
+                global.TOP_P = topP;
+            } else {
+                console.warn('Invalid top_p value:', config.top_p, 'Must be between 0 and 1');
+            }
+        }
+        
+        if (config.top_k !== undefined) {
+            const topK = parseInt(config.top_k);
+            if (!isNaN(topK) && topK >= 1 && topK <= 100) {
+                global.TOP_K = topK;
+            } else {
+                console.warn('Invalid top_k value:', config.top_k, 'Must be between 1 and 100');
+            }
+        }
+        
+        if (config.repeat_penalty !== undefined) {
+            const penalty = parseFloat(config.repeat_penalty);
+            if (!isNaN(penalty) && penalty >= 0.5 && penalty <= 2) {
+                global.REPEAT_PENALTY = penalty;
+            } else {
+                console.warn('Invalid repeat_penalty value:', config.repeat_penalty, 'Must be between 0.5 and 2');
+            }
+        }
+        
+        if (config.num_predict !== undefined) {
+            const numPredict = parseInt(config.num_predict);
+            if (!isNaN(numPredict) && numPredict >= 1 && numPredict <= 4096) {
+                global.NUM_PREDICT = numPredict;
+            } else {
+                console.warn('Invalid num_predict value:', config.num_predict, 'Must be between 1 and 4096');
+            }
+        }
+        
+        if (config.keep_alive !== undefined && typeof config.keep_alive === 'string') {
+            // Validate keep_alive format (e.g., "10m", "5s", "1h", "-1")
+            if (config.keep_alive === '-1' || /^\d+[smh]$/.test(config.keep_alive)) {
+                global.KEEP_ALIVE = config.keep_alive;
+            } else {
+                console.warn('Invalid keep_alive format:', config.keep_alive, 'Must be like "10m", "5s", "1h", or "-1"');
+            }
+        }
+        
+        if (config.streaming !== undefined && typeof config.streaming === 'boolean') {
+            global.STREAMING = config.streaming;
+        }
+        
+        if (config.stop && Array.isArray(config.stop)) {
+            // Filter out empty strings and validate stop tokens
+            const validStopTokens = config.stop
+                .filter(token => typeof token === 'string' && token.trim().length > 0)
+                .map(token => token.trim());
+            
+            if (validStopTokens.length > 0) {
+                global.STOP_TOKENS = validStopTokens;
+            } else {
+                console.warn('No valid stop tokens provided, keeping defaults');
+            }
+        }
 
-        console.log('Configuration updated:', config);
-        res.status(200).json({ message: 'Configuration updated successfully' });
+        console.log('Configuration updated successfully. New global config:', {
+            MODEL: global.MODEL,
+            TEMPERATURE: global.TEMPERATURE,
+            TOP_P: global.TOP_P,
+            TOP_K: global.TOP_K,
+            REPEAT_PENALTY: global.REPEAT_PENALTY,
+            NUM_PREDICT: global.NUM_PREDICT,
+            KEEP_ALIVE: global.KEEP_ALIVE,
+            STREAMING: global.STREAMING,
+            STOP_TOKENS: global.STOP_TOKENS
+        });
+        
+        res.status(200).json({ 
+            message: 'Configuration updated successfully',
+            config: {
+                model: global.MODEL,
+                temperature: global.TEMPERATURE,
+                top_p: global.TOP_P,
+                top_k: global.TOP_K,
+                repeat_penalty: global.REPEAT_PENALTY,
+                num_predict: global.NUM_PREDICT,
+                keep_alive: global.KEEP_ALIVE,
+                streaming: global.STREAMING,
+                stop_tokens: global.STOP_TOKENS
+            }
+        });
     } catch (error) {
         console.error('Error updating configuration:', error);
-        res.status(500).json({ error: 'Failed to update configuration' });
+        res.status(500).json({ error: 'Failed to update configuration', details: error.message });
     }
 });
 
@@ -1019,21 +1109,53 @@ async function summarizeWithPrompt(prompt) {
     console.log("Attempting to call Ollama for summary...");
 
     try {
-        // ✨ NEW: Use configuration parameters for optimal performance
+        // ✨ NEW: Use configuration parameters for optimal performance with validation
         const requestBody = {
             model: global.MODEL || MODEL,
             prompt,
             stream: global.STREAMING !== undefined ? global.STREAMING : false,
             keep_alive: global.KEEP_ALIVE || "10m",
-            options: {
-                temperature: global.TEMPERATURE || 0.2,
-                top_p: global.TOP_P || 0.8,
-                top_k: global.TOP_K || 20,
-                repeat_penalty: global.REPEAT_PENALTY || 1.1,
-                num_predict: global.NUM_PREDICT || 500,
-                stop: global.STOP_TOKENS || ["---", "###"]
-            }
+            options: {}
         };
+
+        // Add options with validation to prevent invalid values from crashing Ollama
+        if (global.TEMPERATURE !== undefined && !isNaN(global.TEMPERATURE)) {
+            requestBody.options.temperature = Math.max(0, Math.min(2, global.TEMPERATURE));
+        } else {
+            requestBody.options.temperature = 0.2;
+        }
+
+        if (global.TOP_P !== undefined && !isNaN(global.TOP_P)) {
+            requestBody.options.top_p = Math.max(0, Math.min(1, global.TOP_P));
+        } else {
+            requestBody.options.top_p = 0.8;
+        }
+
+        if (global.TOP_K !== undefined && !isNaN(global.TOP_K)) {
+            requestBody.options.top_k = Math.max(1, Math.min(100, parseInt(global.TOP_K)));
+        } else {
+            requestBody.options.top_k = 20;
+        }
+
+        if (global.REPEAT_PENALTY !== undefined && !isNaN(global.REPEAT_PENALTY)) {
+            requestBody.options.repeat_penalty = Math.max(0.5, Math.min(2, global.REPEAT_PENALTY));
+        } else {
+            requestBody.options.repeat_penalty = 1.1;
+        }
+
+        if (global.NUM_PREDICT !== undefined && !isNaN(global.NUM_PREDICT)) {
+            requestBody.options.num_predict = Math.max(1, Math.min(4096, parseInt(global.NUM_PREDICT)));
+        } else {
+            requestBody.options.num_predict = 500;
+        }
+
+        if (global.STOP_TOKENS && Array.isArray(global.STOP_TOKENS) && global.STOP_TOKENS.length > 0) {
+            requestBody.options.stop = global.STOP_TOKENS.filter(token => typeof token === 'string' && token.trim().length > 0);
+        } else {
+            requestBody.options.stop = ["---", "###"];
+        }
+
+        console.log('Sending request to Ollama with validated options:', JSON.stringify(requestBody.options, null, 2));
 
         const res = await fetch(`${OLLAMA_URL}/api/generate`, {
             method: 'POST',
