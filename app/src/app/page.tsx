@@ -21,10 +21,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ReportDisplay } from '@/components/dashboard/ReportDisplay';
-import { FollowUp } from "@/components/dashboard/FollowUp";
+import { ChatModal } from "@/components/dashboard/ChatModal";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Label } from 'recharts';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import Image from 'next/image';
 
 interface ParsedReport {
     id: string;
@@ -146,12 +147,11 @@ export default function DashboardPage() {
         }
     });
     const [status, setStatus] = useState("Not connected");
-    const [detailedReport, setDetailedReport] = useState<string | null>(null);
     const [selectedReport, setSelectedReport] = useState<ParsedReport | null>(null);
     const [processingStatus, setProcessingStatus] = useState<string | null>(null);
     const [modelName, setModelName] = useState<string>("...");
-
     const [showOldIssues, setShowOldIssues] = useState(false);
+    const [showChatModal, setShowChatModal] = useState(false);
 
     // ✨ NEW: Persist reports to localStorage whenever they change.
     useEffect(() => {
@@ -399,38 +399,46 @@ export default function DashboardPage() {
             <Dialog open={!!selectedReport} onOpenChange={(open) => {
                 if (!open) {
                     setSelectedReport(null);
-                    setDetailedReport(null);
                 }
             }}>
-                <DialogContent className="sm:max-w-[80vw] h-[90vh] flex flex-col">
-                    <DialogHeader>
+                <DialogContent className="sm:max-w-[95vw] h-[90vh] flex flex-col">
+                    <DialogHeader className="relative">
                         <DialogTitle>AI Report Details</DialogTitle>
                         <DialogDescription>
                             Full AI analysis and follow-up prompt for report generated at {selectedReport?.time}.
                         </DialogDescription>
+                        {/* Robolog Logo - Click to open chat */}
+                        <button
+                            onClick={() => setShowChatModal(true)}
+                            className="absolute bottom-0 right-0 p-2 hover:bg-muted rounded-lg transition-colors group"
+                            title="Chat with Robolog AI"
+                        >
+                            <Image
+                                src="/images/robolog-logo.png"
+                                alt="Chat with Robolog"
+                                width={40}
+                                height={40}
+                                className="rounded group-hover:scale-110 transition-transform"
+                            />
+                        </button>
                     </DialogHeader>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 overflow-hidden">
-                        <ScrollArea className="h-full">
+                    
+                    {/* Full-width report display */}
+                    <div className="flex-1 overflow-hidden">
+                        <ScrollArea className="h-full pr-4">
                             <ReportDisplay report={selectedReport?.fullReport ?? ''} />
                         </ScrollArea>
-                        <div className="flex flex-col gap-4">
-                            <FollowUp report={selectedReport?.fullReport ?? ''} onNewDetails={setDetailedReport} />
-                            {detailedReport && (
-                                <Card className="flex-1">
-                                    <CardHeader><CardTitle>Follow-up Details</CardTitle></CardHeader>
-                                    <CardContent className="h-full">
-                                        <ScrollArea className="h-[calc(100%-4rem)]">
-                                            <pre className="whitespace-pre-wrap font-mono text-sm">
-                                                {detailedReport}
-                                            </pre>
-                                        </ScrollArea>
-                                    </CardContent>
-                                </Card>
-                            )}
-                        </div>
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* Chat Modal */}
+            <ChatModal
+                isOpen={showChatModal}
+                onClose={() => setShowChatModal(false)}
+                report={selectedReport?.fullReport ?? ''}
+                reportId={selectedReport?.id ?? ''}
+            />
             <Card className="mb-6">
                 <CardHeader>
                     <CardTitle>Errors in Last 12 Hours</CardTitle>
