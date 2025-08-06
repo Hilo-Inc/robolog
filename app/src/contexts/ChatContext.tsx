@@ -9,6 +9,8 @@ interface ChatContextType {
     setGlobalChatReport: (report: string) => void;
     globalChatReportId: string;
     setGlobalChatReportId: (id: string) => void;
+    openGlobalChat: (report?: string, reportId?: string) => void;
+    closeGlobalChat: () => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -18,6 +20,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [globalChatReport, setGlobalChatReport] = useState("");
     const [globalChatReportId, setGlobalChatReportId] = useState("");
 
+    const openGlobalChat = (report?: string, reportId?: string) => {
+        setGlobalChatReport(report || "");
+        setGlobalChatReportId(reportId || `general-chat-${Date.now()}`);
+        setIsGlobalChatOpen(true);
+    };
+
+    const closeGlobalChat = () => {
+        setIsGlobalChatOpen(false);
+        // Keep the report and reportId for potential reopening
+    };
+
     return (
         <ChatContext.Provider value={{
             isGlobalChatOpen,
@@ -25,7 +38,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             globalChatReport,
             setGlobalChatReport,
             globalChatReportId,
-            setGlobalChatReportId
+            setGlobalChatReportId,
+            openGlobalChat,
+            closeGlobalChat
         }}>
             {children}
         </ChatContext.Provider>

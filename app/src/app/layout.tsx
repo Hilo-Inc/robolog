@@ -9,6 +9,7 @@ import { Menu, Github } from "lucide-react";
 import { ChatProvider } from "@/contexts/ChatContext";
 import { SidebarNav } from "@/components/layout/SidebarNav";
 import { MobileSidebarNav } from "@/components/layout/MobileSidebarNav";
+import { GlobalChatModal } from "@/components/layout/GlobalChatModal";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -56,6 +57,7 @@ export default function RootLayout({
           </main>
         </div>
       </div>
+      <GlobalChatModal />
       </ChatProvider>
       </body>
       </html>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Home, FlaskConical, Settings } from "lucide-react";
 import { AskQuestionButton } from "@/components/dashboard/AskQuestionButton";
+import { useChatContext } from "@/contexts/ChatContext";
 
 const navItems = [
     { href: '/', label: 'Dashboard', icon: Home },
@@ -12,9 +13,10 @@ const navItems = [
 ];
 
 export function SidebarNav() {
+    const { openGlobalChat } = useChatContext();
+
     const handleAskQuestion = () => {
-        // For now, just log - we'll enhance this later
-        console.log('Open global chat from sidebar');
+        openGlobalChat();
     };
 
     return (
