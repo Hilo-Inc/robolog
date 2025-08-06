@@ -22,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ReportDisplay } from '@/components/dashboard/ReportDisplay';
 import { ChatModal } from "@/components/dashboard/ChatModal";
+import { AskQuestionButton } from "@/components/dashboard/AskQuestionButton";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Label } from 'recharts';
 import { ChevronDown, ChevronUp } from 'lucide-react';
@@ -407,20 +408,11 @@ export default function DashboardPage() {
                         <DialogDescription>
                             Full AI analysis and follow-up prompt for report generated at {selectedReport?.time}.
                         </DialogDescription>
-                        {/* Robolog Logo - Click to open chat */}
-                        <button
+                        {/* Ask Question Button */}
+                        <AskQuestionButton
                             onClick={() => setShowChatModal(true)}
-                            className="absolute bottom-0 right-0 p-2 hover:bg-muted rounded-lg transition-colors group"
-                            title="Chat with Robolog AI"
-                        >
-                            <Image
-                                src="/images/robolog-logo.png"
-                                alt="Chat with Robolog"
-                                width={40}
-                                height={40}
-                                className="rounded group-hover:scale-110 transition-transform"
-                            />
-                        </button>
+                            className="absolute bottom-0 right-0"
+                        />
                     </DialogHeader>
                     
                     {/* Full-width report display */}
