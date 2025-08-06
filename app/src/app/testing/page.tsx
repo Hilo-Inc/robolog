@@ -118,7 +118,7 @@ export default function TestingPage() {
                 <div className="flex flex-col gap-4">
                     <button onClick={handleGenerateErrors} disabled={isGenerating} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded disabled:bg-red-800 disabled:cursor-not-allowed">{isGenerating ? "Generating..." : "Generate Realistic Errors (via Fluent Bit)"}</button>
                     <button onClick={handleDirectTest} className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">Test Analyzer Directly (Bypass Fluent Bit)</button>
-                    <button onClick={handleMarkdownTest} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Test Markdown Formatting & Copy-to-Clipboard</button>
+                    {/* <button onClick={handleMarkdownTest} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Test Markdown Formatting & Copy-to-Clipboard</button> */}
                 </div>
             </div>
 
