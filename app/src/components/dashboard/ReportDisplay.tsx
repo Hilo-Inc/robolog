@@ -144,10 +144,16 @@ const MarkdownContent = ({ content }: { content: string }) => {
         const parts = [];
         let currentIndex = 0;
 
-        // Handle inline code first
-        const inlineCodeMatches = [...text.matchAll(/`([^`]+)`/g)];
+        // Handle inline code first - using more compatible approach
+        const inlineCodeRegex = /`([^`]+)`/g;
+        const inlineCodeMatches: Array<{ match: RegExpExecArray; index: number }> = [];
+        let match;
         
-        inlineCodeMatches.forEach((match, index) => {
+        while ((match = inlineCodeRegex.exec(text)) !== null) {
+            inlineCodeMatches.push({ match, index: inlineCodeMatches.length });
+        }
+        
+        inlineCodeMatches.forEach(({ match, index }) => {
             if (match.index !== undefined) {
                 // Add text before inline code
                 if (currentIndex < match.index) {
