@@ -180,17 +180,18 @@ export async function POST(request: NextRequest) {
             service: scenario?.name || 'unknown'
         }));
 
-        // Send logs to the analyzer
+        // Send logs to the analyzer in the format it expects
         const analyzerResponse = await fetch(`${process.env.ANALYZER_URL || 'http://localhost:3001'}/logs`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                logs: logEntries,
-                source: 'testing-page',
-                scenario: scenario
-            }),
+            body: JSON.stringify(logEntries.map(log => ({
+                log: log.message,
+                container_name: log.container,
+                time: log.timestamp,
+                stream: 'stdout'
+            }))),
         });
 
         if (!analyzerResponse.ok) {
