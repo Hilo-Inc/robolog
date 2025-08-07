@@ -1189,7 +1189,7 @@ async function summarizeWithPrompt(prompt) {
 // Platform-specific character limits
 // Can be overridden via environment variables (e.g., DISCORD_MAX_CHARS=1500)
 const PLATFORM_LIMITS = {
-    discord: { maxChars: parseInt(process.env.DISCORD_MAX_CHARS) || 2000 },
+    discord: { maxChars: parseInt(process.env.DISCORD_MAX_CHARS) || 1500 },
     slack: { maxChars: parseInt(process.env.SLACK_MAX_CHARS) || 4000 },
     teams: { maxChars: parseInt(process.env.TEAMS_MAX_CHARS) || 4000 },
     telegram: { maxChars: parseInt(process.env.TELEGRAM_MAX_CHARS) || 4096 },
