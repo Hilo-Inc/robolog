@@ -25,7 +25,7 @@ import { ChatModal } from "@/components/dashboard/ChatModal";
 import { AskQuestionButton } from "@/components/dashboard/AskQuestionButton";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Label } from 'recharts';
-import { ChevronDown, ChevronUp, Calendar, Clock, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Calendar, Clock, AlertTriangle, Loader2, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import Image from 'next/image';
 
 interface ParsedReport {
@@ -36,6 +36,32 @@ interface ParsedReport {
     snippet: string;
     fullReport: string;
     timestamp: number;
+}
+
+interface ProcessingStatus {
+    stage: string;
+    message: string;
+    timestamp: number;
+    logsCount?: number;
+    instance?: string;
+    processingTime?: number;
+    summaryLength?: number;
+    queueSize?: number;
+    priority?: string;
+    retries?: number;
+    totalTime?: number;
+    error?: string;
+}
+
+interface ProcessingState {
+    isActive: boolean;
+    currentStage: string;
+    message: string;
+    startTime: number;
+    logsCount: number;
+    queueSize: number;
+    processingTime: number;
+    stages: ProcessingStatus[];
 }
 
 // Mobile-friendly report card component
@@ -84,6 +110,35 @@ function getLast12HoursBuckets() {
         });
     }
     return buckets;
+}
+
+function getStageIcon(stage: string) {
+    switch (stage) {
+        case 'queue_added':
+        case 'queue_processing':
+        case 'queue_updated':
+            return <Loader2 className="h-4 w-4 animate-spin" />;
+        case 'ollama_started':
+        case 'ollama_completed':
+            return <Loader2 className="h-4 w-4 animate-spin" />;
+        case 'webhook_sending':
+            return <Loader2 className="h-4 w-4 animate-spin" />;
+        case 'completed':
+        case 'queue_completed':
+            return <CheckCircle className="h-4 w-4 text-green-400" />;
+        case 'ollama_failed':
+        case 'error':
+            return <XCircle className="h-4 w-4 text-red-400" />;
+        default:
+            return <AlertCircle className="h-4 w-4" />;
+    }
+}
+
+function getStageColor(stage: string) {
+    if (stage.includes('error') || stage.includes('failed')) return 'text-red-400';
+    if (stage.includes('completed')) return 'text-green-400';
+    if (stage.includes('queue') || stage.includes('ollama') || stage.includes('webhook')) return 'text-blue-400';
+    return 'text-blue-300';
 }
 
 function parseReportForTable(report: string, index: number): ParsedReport {
@@ -188,7 +243,16 @@ export default function DashboardPage() {
     });
     const [status, setStatus] = useState("Not connected");
     const [selectedReport, setSelectedReport] = useState<ParsedReport | null>(null);
-    const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+    const [processingState, setProcessingState] = useState<ProcessingState>({
+        isActive: false,
+        currentStage: '',
+        message: '',
+        startTime: 0,
+        logsCount: 0,
+        queueSize: 0,
+        processingTime: 0,
+        stages: []
+    });
     const [modelName, setModelName] = useState<string>("...");
     const [showOldIssues, setShowOldIssues] = useState(false);
     const [showChatModal, setShowChatModal] = useState(false);
@@ -251,16 +315,47 @@ export default function DashboardPage() {
         socket.on('processing-started', (data: { count: number, logs: { message: string, container: string }[] }) => {
             console.log('Processing started event received:', data);
             const logSnippets = data.logs.map(log => `- [${log.container}] ${log.message.substring(0, 80)}...`).join('\n');
-            setProcessingStatus(`🤖 Analyzer has received ${data.count} new error(s) and is generating a report. This may take a moment...\n\nLogs received:\n${logSnippets}`);
+            
+            setProcessingState({
+                isActive: true,
+                currentStage: 'started',
+                message: `🤖 Analyzer has received ${data.count} new error(s) and is generating a report. This may take a moment...\n\nLogs received:\n${logSnippets}`,
+                startTime: Date.now(),
+                logsCount: data.count,
+                queueSize: 0,
+                processingTime: 0,
+                stages: []
+            });
             
             // Fallback: Clear processing status after 2 minutes if no report is received
             const timeoutId = setTimeout(() => {
                 console.log('Processing timeout reached, clearing status');
-                setProcessingStatus(null);
+                setProcessingState(prev => ({ ...prev, isActive: false }));
             }, 120000); // 2 minutes
             
             // Store timeout ID to clear it if we receive a report
             (window as any).processingTimeout = timeoutId;
+        });
+
+        socket.on('processing-status', (status: ProcessingStatus) => {
+            console.log('Processing status update received:', status);
+            
+            setProcessingState(prev => {
+                const newStages = [...prev.stages, status];
+                // Keep only last 10 stages to prevent memory issues
+                const recentStages = newStages.slice(-10);
+                
+                return {
+                    ...prev,
+                    isActive: true,
+                    currentStage: status.stage,
+                    message: status.message,
+                    logsCount: status.logsCount || prev.logsCount,
+                    queueSize: status.queueSize || prev.queueSize,
+                    processingTime: status.processingTime || prev.processingTime,
+                    stages: recentStages
+                };
+            });
         });
 
         socket.on("new-summary", (newReport: string) => {
@@ -274,7 +369,7 @@ export default function DashboardPage() {
             
             // ✅ This update will trigger the localStorage persistence effect.
             setReports(prev => [newReport, ...prev]);
-            setProcessingStatus(null);
+            setProcessingState(prev => ({ ...prev, isActive: false }));
         });
 
         return () => {
@@ -295,6 +390,40 @@ export default function DashboardPage() {
             window.removeEventListener('test-markdown-report', handleTestMarkdownReport);
         };
     }, []);
+
+    // ✨ NEW: Periodic status check for processing state
+    useEffect(() => {
+        const checkProcessingStatus = async () => {
+            try {
+                const response = await fetch('/analyzer/processing-status');
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Update processing state if there's active processing
+                    if (data.isProcessing && !processingState.isActive) {
+                        setProcessingState(prev => ({
+                            ...prev,
+                            isActive: true,
+                            currentStage: 'checking',
+                            message: '🔄 Checking processing status...',
+                            startTime: Date.now(),
+                            queueSize: data.queueSize || 0
+                        }));
+                    } else if (!data.isProcessing && processingState.isActive) {
+                        // Clear processing state if no longer processing
+                        setProcessingState(prev => ({ ...prev, isActive: false }));
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to check processing status:', error);
+            }
+        };
+
+        // Check status every 5 seconds
+        const intervalId = setInterval(checkProcessingStatus, 5000);
+        
+        return () => clearInterval(intervalId);
+    }, [processingState.isActive]);
 
     const parsedReports = reports.map(parseReportForTable);
 
@@ -331,18 +460,75 @@ export default function DashboardPage() {
 
     return (
         <>
-            {processingStatus && (
+            {processingState.isActive && (
                 <Card className="mb-4 bg-blue-900/50 border-blue-500">
                     <CardHeader>
                         <CardTitle className="text-lg text-blue-300 flex items-center gap-2 animate-pulse">
                             <div className="w-4 h-4 bg-blue-400 rounded-full animate-bounce"></div>
                             Analysis in Progress
+                            {processingState.currentStage && (
+                                <Badge 
+                                    variant={processingState.currentStage.includes('error') || processingState.currentStage.includes('failed') ? 'destructive' : 'outline'} 
+                                    className="ml-2 text-xs"
+                                >
+                                    {processingState.currentStage.replace(/_/g, ' ')}
+                                </Badge>
+                            )}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <pre className="whitespace-pre-wrap font-mono text-sm text-blue-200">
-                            {processingStatus}
-                        </pre>
+                        <div className="space-y-3">
+                            <pre className="whitespace-pre-wrap font-mono text-sm text-blue-200">
+                                {processingState.message}
+                            </pre>
+                            
+                            {/* Processing details */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-blue-300">
+                                {processingState.logsCount > 0 && (
+                                    <div>📊 Logs: {processingState.logsCount}</div>
+                                )}
+                                {processingState.queueSize > 0 && (
+                                    <div>📋 Queue: {processingState.queueSize}</div>
+                                )}
+                                {processingState.processingTime > 0 && (
+                                    <div>⏱️ Time: {processingState.processingTime}ms</div>
+                                )}
+                                <div>🕐 Duration: {Math.round((Date.now() - processingState.startTime) / 1000)}s</div>
+                            </div>
+                            
+                            {/* Progress bar */}
+                            <div className="mt-2">
+                                <div className="w-full bg-blue-900/50 rounded-full h-2">
+                                    <div 
+                                        className="bg-blue-400 h-2 rounded-full transition-all duration-300"
+                                        style={{ 
+                                            width: `${Math.min(100, (Date.now() - processingState.startTime) / 1000 / 60 * 100)}%` 
+                                        }}
+                                    ></div>
+                                </div>
+                                <div className="text-xs text-blue-400 mt-1">
+                                    Progress: {Math.round((Date.now() - processingState.startTime) / 1000)}s elapsed
+                                </div>
+                            </div>
+                            
+                            {/* Recent stages */}
+                            {processingState.stages.length > 0 && (
+                                <div className="mt-3">
+                                    <div className="text-xs text-blue-400 mb-2">Recent stages:</div>
+                                    <div className="space-y-1">
+                                        {processingState.stages.slice(-3).map((stage, index) => (
+                                            <div key={index} className={`text-xs flex items-center gap-2 ${getStageColor(stage.stage)}`}>
+                                                {getStageIcon(stage.stage)}
+                                                <span>{stage.message}</span>
+                                                {stage.processingTime && (
+                                                    <span className="text-blue-400">({stage.processingTime}ms)</span>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </CardContent>
                 </Card>
             )}

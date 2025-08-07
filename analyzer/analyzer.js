@@ -62,6 +62,16 @@ class AnalysisQueue {
             if (this.getPriorityValue(priority) > this.getPriorityValue(this.queue[existingIndex].priority)) {
                 this.queue[existingIndex].priority = priority;
                 this.sortQueue();
+                
+                // ✨ NEW: Emit queue update status
+                io.emit('processing-status', {
+                    stage: 'queue_updated',
+                    message: `📋 Updated priority for existing batch ${batchHash.substring(0, 8)} to ${priority}`,
+                    timestamp: Date.now(),
+                    queueSize: this.queue.length,
+                    priority: priority,
+                    instance: 'queue-manager'
+                });
             }
             return batchHash;
         }
@@ -72,6 +82,16 @@ class AnalysisQueue {
             this.queue.sort((a, b) => this.getPriorityValue(a.priority) - this.getPriorityValue(b.priority));
             const removed = this.queue.shift();
             console.log(`Queue full, removed batch ${removed.hash} (priority: ${removed.priority})`);
+            
+            // ✨ NEW: Emit queue overflow status
+            io.emit('processing-status', {
+                stage: 'queue_overflow',
+                message: `⚠️ Queue full, removed lowest priority batch ${removed.hash.substring(0, 8)}`,
+                timestamp: Date.now(),
+                queueSize: this.queue.length,
+                removedPriority: removed.priority,
+                instance: 'queue-manager'
+            });
         }
 
         // Add new batch to queue
@@ -86,6 +106,17 @@ class AnalysisQueue {
 
         this.queue.push(queueItem);
         this.sortQueue();
+        
+        // ✨ NEW: Emit queue addition status
+        io.emit('processing-status', {
+            stage: 'queue_added',
+            message: `📋 Added batch ${batchHash.substring(0, 8)} to queue (priority: ${priority}, position: ${this.queue.length})`,
+            timestamp: Date.now(),
+            queueSize: this.queue.length,
+            priority: priority,
+            logsCount: logs.length,
+            instance: 'queue-manager'
+        });
         
         // Only log high-priority or large queues to reduce noise
         if (priority === 'urgent' || this.queue.length > 10) {
@@ -153,6 +184,17 @@ class AnalysisQueue {
         const currentInstance = this.processingCount;
         
         try {
+            // ✨ NEW: Emit queue processing status
+            io.emit('processing-status', {
+                stage: 'queue_processing',
+                message: `📋 Processing batch ${item.hash.substring(0, 8)} (priority: ${item.priority}, attempt: ${item.retries + 1})`,
+                timestamp: Date.now(),
+                queueSize: this.queue.length,
+                priority: item.priority,
+                retries: item.retries,
+                instance: currentInstance
+            });
+            
             // Reduce logging noise - only log retries and critical issues
             if (item.retries > 0 || item.priority === 'urgent') {
                 console.log(`Processing instance ${currentInstance}: Starting batch ${item.hash} (priority: ${item.priority}, attempt: ${item.retries + 1})`);
@@ -163,6 +205,15 @@ class AnalysisQueue {
             if (success) {
                 console.log(`Processing instance ${currentInstance}: Completed batch ${item.hash} successfully`);
                 this.retryAttempts.delete(item.hash);
+                
+                // ✨ NEW: Emit queue completion status
+                io.emit('processing-status', {
+                    stage: 'queue_completed',
+                    message: `✅ Batch ${item.hash.substring(0, 8)} completed successfully`,
+                    timestamp: Date.now(),
+                    queueSize: this.queue.length,
+                    instance: currentInstance
+                });
             } else {
                 await this.handleFailure(item, currentInstance);
             }
@@ -206,10 +257,32 @@ class AnalysisQueue {
             this.ollamaInUse = true;
             this.ollamaRequestCount++;
 
+            // ✨ NEW: Emit detailed processing status updates
+            const startTime = Date.now();
+            io.emit('processing-status', {
+                stage: 'ollama_started',
+                message: `🤖 Starting AI analysis for ${logs.length} log entries...`,
+                timestamp: startTime,
+                logsCount: logs.length,
+                instance: instance
+            });
+
             // Use existing analysis logic
             const summary = await summarize(logs);
             
             if (summary && summary.trim()) {
+                const processingTime = Date.now() - startTime;
+                
+                // Emit completion status
+                io.emit('processing-status', {
+                    stage: 'ollama_completed',
+                    message: `✅ AI analysis completed in ${processingTime}ms`,
+                    timestamp: Date.now(),
+                    processingTime: processingTime,
+                    summaryLength: summary.length,
+                    instance: instance
+                });
+
                 // Format and send the message (using existing logic)
                 let fullMessage = "📄 **Raw Logs in this Batch:**\n```\n";
                 for (const log of logs) {
@@ -223,8 +296,25 @@ class AnalysisQueue {
                 fullMessage += "```\n\n";
                 fullMessage += `🤖 **AI Log Analysis (${LANGUAGE})**:\n${summary}`;
 
+                // Emit webhook status
+                io.emit('processing-status', {
+                    stage: 'webhook_sending',
+                    message: `📤 Sending report to webhook...`,
+                    timestamp: Date.now(),
+                    instance: instance
+                });
+
                 io.emit('new-summary', fullMessage);
                 await sendWebhook(fullMessage);
+
+                // Emit final completion
+                io.emit('processing-status', {
+                    stage: 'completed',
+                    message: `✅ Report generated and sent successfully`,
+                    timestamp: Date.now(),
+                    totalTime: Date.now() - startTime,
+                    instance: instance
+                });
 
                 reportHistory.unshift(fullMessage);
                 if (reportHistory.length > MAX_REPORTS) {
@@ -233,10 +323,34 @@ class AnalysisQueue {
                 
                 return true;
             } else {
+                const processingTime = Date.now() - startTime;
                 console.log(`Processing instance ${instance}: AI returned empty summary`);
+                
+                io.emit('processing-status', {
+                    stage: 'ollama_failed',
+                    message: `❌ AI analysis failed - no summary generated`,
+                    timestamp: Date.now(),
+                    processingTime: processingTime,
+                    instance: instance
+                });
+                
                 return false;
             }
             
+        } catch (error) {
+            const processingTime = Date.now() - startTime;
+            console.error(`Processing instance ${instance}: Unexpected error:`, error);
+            
+            io.emit('processing-status', {
+                stage: 'error',
+                message: `❌ Analysis error: ${error.message}`,
+                timestamp: Date.now(),
+                processingTime: processingTime,
+                error: error.message,
+                instance: instance
+            });
+            
+            return false;
         } finally {
             this.ollamaInUse = false;
         }
@@ -374,6 +488,35 @@ app.get('/status', (req, res) => {
     } catch (error) {
         console.error("Error generating status report:", error);
         res.status(500).json({ status: 'error', message: 'Failed to generate status report.' });
+    }
+});
+
+// ✨ NEW: Endpoint to get real-time processing status
+app.get('/processing-status', (req, res) => {
+    try {
+        const queueStatus = analysisQueue.getStatus();
+        const isCurrentlyProcessing = queueStatus.isProcessing || queueStatus.ollamaInUse;
+        
+        const processingStatus = {
+            isProcessing: isCurrentlyProcessing,
+            queueSize: queueStatus.queueSize,
+            isProcessingQueue: queueStatus.isProcessing,
+            ollamaInUse: queueStatus.ollamaInUse,
+            processingCount: queueStatus.processingCount,
+            ollamaRequestCount: queueStatus.ollamaRequestCount,
+            lastProcessTime: queueStatus.lastProcessTime,
+            uptime: process.uptime(),
+            memoryUsage: process.memoryUsage(),
+            freeMemoryMb: Math.round(os.freemem() / 1024 / 1024),
+            logBufferLength: logBuffer.length,
+            deduplicationCacheSize: deduplicationCache.size,
+            reportHistoryLength: reportHistory.length
+        };
+        
+        res.status(200).json(processingStatus);
+    } catch (error) {
+        console.error("Error generating processing status:", error);
+        res.status(500).json({ status: 'error', message: 'Failed to generate processing status.' });
     }
 });
 
